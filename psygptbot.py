@@ -137,7 +137,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    data_question = fetch_dose_card_from_psygpt(substance_name, data_chat["chat_id"])
+    data_question = fetch_dose_card_from_psygpt(substance_name, data_chat["data"]["chat_id"])
     if not data_question:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -216,8 +216,17 @@ if __name__ == "__main__":
             & telegram.ext.filters.Regex(r"^/ask")
         ),
     )
+    fx_handler = MessageHandler(
+        callback=respond_to_fx,
+        filters=(
+            telegram.ext.filters.COMMAND
+            & telegram.ext.filters.TEXT
+            & telegram.ext.filters.Regex(r"^/fx")
+        ),
+    )
     application.add_handler(ask_handler)
     application.add_handler(start_handler)
     application.add_handler(info_handler)
+    application.add_handler(fx_handler)
 
     application.run_polling()
