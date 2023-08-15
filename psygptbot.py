@@ -10,6 +10,7 @@ from telegram.ext import (
     MessageHandler,
 )
 from telegram.constants import ParseMode, ChatAction
+from algoliasearch.search_client import SearchClient
 from dotenv import load_dotenv
 
 load_dotenv()
