@@ -30,7 +30,8 @@ TELETOKEN = os.getenv("TELETOKEN")
 
 # Text & info message parsing
 SORRY_MSG = lambda x: f"Sorry, I couldn't fetch the {x}. Please try again later."
-ESCAPE_TEXT = lambda text: re.sub(r"([_\*\[\]\(\)~`>\#\+\-=\|{}\.!])", r"\\1", text)
+ESCAPE_TEXT = lambda text: text
+# ESCAPE_TEXT = lambda text: re.sub(r"([_\*\[\]\(\)~`>\#\+\-=\|{}\.!])", r"\\1", text)
 
 # Logging
 logging.basicConfig(
@@ -161,7 +162,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
-        parse_mode=ParseMode.MARKDOWN_V2,
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
