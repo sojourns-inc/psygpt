@@ -101,6 +101,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
+
     data_chat = fetch_new_chat_id_from_psygpt(query)
     if not data_chat:
         await context.bot.send_message(
@@ -129,6 +130,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
+
     data_chat = fetch_new_chat_id_from_psygpt(substance_name)
     if not data_chat:
         await context.bot.send_message(
@@ -137,7 +139,9 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    data_question = fetch_dose_card_from_psygpt(substance_name, data_chat["data"]["chat_id"])
+    data_question = fetch_dose_card_from_psygpt(
+        substance_name, data_chat["data"]["chat_id"]
+    )
     if not data_question:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -146,7 +150,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format the reply
-    reply_text = f"{substance_name}\n\n{data_question['assistant']}\n\nContact: Email: `0@sernyl.dev` // [Website](https://sojourns.io)"
+    reply_text = f"{substance_name}\n\n{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev` // [Website](https://sojourns.io)"
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
@@ -159,10 +163,11 @@ async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
     substance_name = update.message.text.lower().split("/fx ")[1]
-    logger.info(f"Info: `{substance_name}`")
+    logger.info(f"FX: `{substance_name}`")
     substance_name_cap = substance_name.capitalize()
-    loading_text = f"{substance_name_cap} - User-Reported Effects\n\n【Ｌｏａｄｉｎｇ ＦＸ．．．⏳】"
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=loading_text)
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action=ChatAction.TYPING
+    )
 
     try:
         results = index.search(substance_name)["hits"]
