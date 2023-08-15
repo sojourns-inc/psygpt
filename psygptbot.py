@@ -83,7 +83,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
 def fetch_new_chat_id_from_psygpt(query: str):
     try:
         raw = {"name": f"Card => {query}"}
-        return post_and_parse_url("{BASE_URL}/chat", raw)
+        return post_and_parse_url(f"{BASE_URL}/chat", raw)
     except Exception as error:
         logger.error(f"Error in fetch_new_chat_id_from_psygpt: {error}")
         return None
