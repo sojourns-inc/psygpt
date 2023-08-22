@@ -1,9 +1,11 @@
 import logging
-from telegram import Update
 import os
-import telegram
 import requests
 import re
+import stripe
+import telegram
+from dotenv import load_dotenv
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -11,22 +13,78 @@ from telegram.ext import (
     MessageHandler,
 )
 from telegram.constants import ParseMode, ChatAction
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from supabase import create_client
 from algoliasearch.search_client import SearchClient
-from dotenv import load_dotenv
+
 
 load_dotenv()
 
+
 # Constants
-DOSECARD_EXAMPLE = ".\n\nExample (drug information card for Gabapentin):\n\n\n\n```\n\n\n\n\uD83D\uDD2D Class\n\n\n\n* Chemical \u27A1\uFE0F Gabapentinoids\n\n* Psychoactive \u27A1\uFE0F Depressant\n\n\n\n\n\n\u2696\uFE0F Dosages\n\n\n\n* \u2734\uFE0F ORAL \u2734\uFE0F\n\n   - Threshold: 200mg\n\n   - Light: 200 - 600mg\n\n   - Common: 600 - 900mg\n\n   - Strong: 900 - 1200mg\n\n   - Heavy: 1200mg\n\n\n\n\n\n\uD83D\uDD70\uFE0F Duration\n\n\n\n* \u2734\uFE0F ORAL \u2734\uFE0F\n\n   - Onset: 30 - 90 minutes\n\n   - Total: 5 - 8 hours\n\n\n\n\n\n\u26A0\uFE0F Addiction potential \u26A0\uFE0F\n\n\n\nNo addiction potential information.\n\n\n\n\uD83E\uDDE0 Subjective Effects \uD83E\uDDE0\n\n\n\n* Focus enhancement\n\n* Euphoria\n\n\n\n\uD83D\uDCC8 Tolerance\n\n* Full: with prolonged continuous usage\n\n* Baseline: 7-14 days\n\n```"
-BASE_URL = "https://api.dose.tips"
+def create_drug_info_card(drug_name):
+    search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
+    info_card = f""" *[{drug_name}]({search_url})*
+
+
+🔭 *Class*
+
+* ✴️ *Chemical:* ➡️ Gabapentinoids
+* ✴️ *Psychoactive:* ➡️ Depressant
+
+
+⚖️ *Dosages*
+
+* ✴️ *ORAL ✴️*
+  - *Threshold:* 200mg
+  - *Light:* 200 \- 600mg
+  - *Common:* 600 \- 900mg
+  - *Strong:* 900 \- 1200mg
+  - *Heavy:* 1200mg
+
+
+⏱️ *Duration*
+
+* ✴️ *ORAL ✴️*
+  - *Onset:* 30 \- 90 minutes
+  - *Total:* 5 \- 8 hours
+
+
+⚠️ *Addiction Potential ⚠️*
+
+* No addiction potential information\.
+
+
+🧠 *Subjective Effects 🧠*
+
+  - * Focus enhancement
+  - * Euphoria
+
+
+📈 *Tolerance*
+  - * *Full:* with prolonged continuous usage
+  - * *Baseline:* 7\-14 days
+
+"""
+    return info_card
+
+
 
 # Env constants
+BASE_URL = os.getenv("BASE_URL")
 APPLICATION_ID = os.getenv("ALGO_APP_ID")
 API_KEY = os.getenv("ALGO_API_KEY")
 INDEX_NAME = os.getenv("ALGO_INDEX")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+LLM_API_KEY = os.getenv("LLM_API_KEY")
+LLM_MODEL_ID = os.getenv("LLM_MODEL_ID")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 TELETOKEN = os.getenv("TELETOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+stripe.api_key = os.getenv("STRIPE_API_KEY")
+endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
+STRIPE_PLAN_ID = os.getenv("STRIPE_PLAN_ID")
 
 # Text & info message parsing
 SORRY_MSG = lambda x: f"Sorry, I couldn't fetch the {x}. Please try again later."
@@ -37,17 +95,42 @@ ESCAPE_TEXT = lambda text: text
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-logger = logging.getLogger("PsyGPT Log 🤖")
+logger = logging.getLogger("PsyAI Log 🤖")
 
 # Algolia
 client = SearchClient.create(APPLICATION_ID, API_KEY)
 index = client.init_index(INDEX_NAME)
 
+# Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def escape_markdown_v2(text):
+    escape_chars = r'_*[]()~`>#\+=-|{}.!'
+    return ''.join('\\' + char if char in escape_chars else char for char in text)
+
+
+
+def check_stripe_sub(telegram_user_id):
+    user_associations = supabase.table("user_association").select("*").execute()
+    user_association = None
+
+    for association in user_associations.data:
+        if association["telegram_id"] == telegram_user_id:
+            user_association = association
+
+    if not user_association:
+        return False
+
+    subscription_is_active = user_association["subscription_status"]
+
+    return subscription_is_active
+
 
 def post_and_parse_url(url: str, payload: dict):
     try:
         headers = {
-            "Openai-Api-Key": OPENAI_API_KEY,
+            "Openai-Api-Key": LLM_API_KEY,
             "Authorization": f"Bearer {BEARER_TOKEN}",
         }
         response = requests.post(url, json=payload, headers=headers)
@@ -57,14 +140,24 @@ def post_and_parse_url(url: str, payload: dict):
         return None
 
 
+def fetch_new_chat_id_from_psygpt(query: str):
+    try:
+        raw = {"name": f"Card => {query}"}
+        return post_and_parse_url(f" {BASE_URL}/chat", raw)
+    except Exception as error:
+        logger.error(f"Error in fetch_new_chat_id_from_psygpt: {error}")
+        return None
+
+
 def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
     try:
         raw = {
-            "model": "gpt-4-32k",
-            "question": f"Write a drug information card for {substance_name}.\n\n"
-            + DOSECARD_EXAMPLE,
-            "temperature": "0.0",
-            "max_tokens": 6000,
+            "model": LLM_MODEL_ID,
+            "question": f"Write a drug information card for {substance_name}.\n\n Example drug information card:\n\n"
+            + create_drug_info_card(substance_name)
+            + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using Markdown, and maintain one newline between each bullet point.",
+            "temperature": "0.1",
+            "max_tokens": 10000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
@@ -75,10 +168,10 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
 def fetch_question_from_psygpt(query: str, chat_id: str):
     try:
         raw = {
-            "model": "gpt-4-32k",
-            "question": f"{query}\n\n(Please limit your response to 10000 characters max.)",
-            "temperature": "0.5",
-            "max_tokens": 6000,
+            "model": LLM_MODEL_ID,
+            "question": f"{query}\n\n(Please respond in a conversational manner. If the context doesn't have specific information about the query, you can say something like 'I'm not sure, but...' or 'I don't have that information, however...'. Please limit your response to 30000 characters max.)",
+            "temperature": "0.6",
+            "max_tokens": 10000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
@@ -86,22 +179,23 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
         return None
 
 
-def fetch_new_chat_id_from_psygpt(query: str):
-    try:
-        raw = {"name": f"Card => {query}"}
-        return post_and_parse_url(f"{BASE_URL}/chat", raw)
-    except Exception as error:
-        logger.error(f"Error in fetch_new_chat_id_from_psygpt: {error}")
-        return None
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    welcome_text = "Welcome to PsyAI Bot! If you aren't subbed, type /sub to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here]."
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!"
+        chat_id=update.effective_chat.id,
+        text=welcome_text,  # reply_markup=reply_markup
     )
 
 
 async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not check_stripe_sub(update.effective_user.id):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You must have an active subscription to use this command.",
+        )
+        return
+
     query = update.message.text.split("/ask ")[1]
     logger.info(f"Asking: `{query}`")
     await context.bot.send_chat_action(
@@ -131,7 +225,14 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    substance_name = update.message.text.lower().split("/info ")[1]
+    if not check_stripe_sub(update.effective_user.id):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You must have an active subscription to use this command.",
+        )
+        return
+
+    substance_name = update.message.text.split("/info ")[1]
     logger.info(f"Info: `{substance_name}`")
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
@@ -156,15 +257,16 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format the reply
-    reply_text = ESCAPE_TEXT(
-        f"{substance_name}\n\n{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev` // [Website](https://sojourns.io)"
-    )
+    reply_text = f"{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev`"
+
+    # Escape the hyphens for Markdown V2
+    reply_text = escape_markdown_v2(reply_text)
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=telegram.constants.ParseMode.MARKDOWN_V2
     )
-
 
 async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
@@ -196,7 +298,7 @@ async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         reply_text = ESCAPE_TEXT(
-            f"{substance_name_cap} - User-Reported Effects\n\n{effects}\n\nContact: Email: `0@sernyl.dev` // [Website](https://sojourns.io)"
+            f"{substance_name_cap} - User-Reported Effects\n\n{effects}\n\nContact: Email: `0@sernyl.dev`"
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -209,6 +311,37 @@ async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="Sorry, something went wrong. Please try again later.",
         )
+
+
+async def start_subscription(update, context):
+    user_telegram_id = update.effective_user.id
+
+    # Create the Stripe Checkout Session with subscription and metadata
+    checkout_session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        line_items=[
+            {
+                "price": STRIPE_PLAN_ID,
+                "quantity": 1,
+            }
+        ],
+        mode="subscription",
+        metadata={"telegram_id": user_telegram_id},
+        success_url="https://psyai-patreon-linker-97bd2997eae8.herokuapp.com/success",
+        cancel_url="https://psyai-patreon-linker-97bd2997eae8.herokuapp.com/cancel",
+    )
+
+    # Payment URL
+    payment_url = checkout_session["url"]
+
+    # Create an inline keyboard button that links to the payment URL
+    keyboard = [[InlineKeyboardButton("Subscribe Now", url=payment_url)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send a message with the inline keyboard button
+    await update.message.reply_text(
+        "Click the button below to subscribe:", reply_markup=reply_markup
+    )
 
 
 if __name__ == "__main__":
@@ -239,6 +372,12 @@ if __name__ == "__main__":
             & telegram.ext.filters.Regex(r"^/fx")
         ),
     )
+
+    # Create the subscription command handler
+    sub_handler = CommandHandler("sub", start_subscription)
+
+    # Add the handler to the application
+    application.add_handler(sub_handler)
     application.add_handler(ask_handler)
     application.add_handler(start_handler)
     application.add_handler(info_handler)
