@@ -245,7 +245,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format the reply
-    reply_text = f"{data_question['data']['assistant']}")
+    reply_text = f"{data_question['data']['assistant']}"
     print(reply_text)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
