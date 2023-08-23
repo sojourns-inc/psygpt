@@ -26,7 +26,7 @@ def create_drug_info_card(drug_name):
     drug_name_upper = drug_name.upper()
     search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
     info_card = f"""
-[{drug_name_upper}]({searchUrl}) drug information
+[{drug_name_upper}]({search_url}) drug information
 
 🔭 *Class*
 
