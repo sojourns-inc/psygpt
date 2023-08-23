@@ -94,12 +94,20 @@ index = client.init_index(INDEX_NAME)
 # Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#\+=-|{}.!'
-    return ''.join('\\' + char if char in escape_chars else char for char in text)
-
-
+    # Escape special characters except inside inline link parentheses
+    result = []
+    inside_parentheses = False
+    for char in text:
+        if char == '(':
+            inside_parentheses = True
+        elif char == ')':
+            inside_parentheses = False
+        if char in escape_chars and (not inside_parentheses or char in '.)\\'):
+            result.append('\\')
+        result.append(char)
+    return ''.join(result)
 
 def check_stripe_sub(telegram_user_id):
     user_associations = supabase.table("user_association").select("*").execute()
