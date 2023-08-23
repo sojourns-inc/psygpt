@@ -24,38 +24,39 @@ load_dotenv()
 # Constants
 def create_drug_info_card(drug_name):
     drug_name_upper = drug_name.upper()
-    search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
-    info_card = f"""{drug_name_upper}
+    search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&amp;title=Special%3ASearch&amp;go=Go"
+    info_card = f"""<a href="{search_url}"><b>{drug_name_upper}</b></a>
 
-🔭 *Class*
-- ✴️ *Chemical:* ➡️ Gabapentinoids
-- ✴️ *Psychoactive:* ➡️ Depressant
+<b>🔭 Class</b>
+- ✴️ <b>Chemical:</b> ➡️ Gabapentinoids
+- ✴️ <b>Psychoactive:</b> ➡️ Depressant
 
-⚖️ *Dosages*
-- ✴️ *ORAL* ✴️
-  - *Threshold:* 200mg
-  - *Light:* 200 - 600mg
-  - *Common:* 600 - 900mg
-  - *Strong:* 900 - 1200mg
-  - *Heavy:* 1200mg
+<b>⚖️ Dosages</b>
+- ✴️ <b>ORAL ✴️</b>
+  - <b>Threshold:</b> 200mg
+  - <b>Light:</b> 200 - 600mg
+  - <b>Common:</b> 600 - 900mg
+  - <b>Strong:</b> 900 - 1200mg
+  - <b>Heavy:</b> 1200mg
 
-⏱️ *Duration:*
-- ✴️ *ORAL* ✴️
-  - *Onset:* 30 - 90 minutes
-  - *Total:* 5 - 8 hours
+<b>⏱️ Duration:</b>
+- ✴️ <b>ORAL ✴️</b>
+  - <b>Onset:</b> 30 - 90 minutes
+  - <b>Total:</b> 5 - 8 hours
 
-⚠️ *Addiction Potential* ⚠️
+<b>⚠️ Addiction Potential ⚠️</b>
 - No addiction potential information.
 
-🧠 *Subjective Effects*
-  - *Focus enhancement*
-  - *Euphoria*
+<b>🧠 Subjective Effects</b>
+  - <b>Focus enhancement</b>
+  - <b>Euphoria</b>
 
-📈 *Tolerance:*
-  - *Full:* with prolonged continuous usage
-  - *Baseline:* 7-14 days
+<b>📈 Tolerance:</b>
+  - <b>Full:</b> with prolonged continuous usage
+  - <b>Baseline:</b> 7-14 days
 """
     return info_card
+
 
 
 
@@ -140,9 +141,9 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"Write a drug information card for {substance_name}.\n\n Example drug information card:\n\n"
+            "question": f"Generate a drug information card using html for {substance_name}.\n\n Example drug information card:\n\n"
             + create_drug_info_card(substance_name)
-            + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using Markdown, and maintain one newline between each bullet point.",
+            + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
             "temperature": "0.1",
             "max_tokens": 10000,
         }
@@ -244,12 +245,12 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format the reply
-    reply_text = escape_markdown_v2(f"{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev`")
+    reply_text = f"{data_question['data']['assistant']}")
     print(reply_text)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
-        parse_mode=telegram.constants.ParseMode.MARKDOWN_V2
+        parse_mode=telegram.constants.ParseMode.HTML
     )
 
 async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
