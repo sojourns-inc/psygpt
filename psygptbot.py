@@ -140,11 +140,11 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"Generate a drug information card using Telegram-friendly HTML for {substance_name}. Find an exact match (case-insensitive) for the drug name, as provided, in your database. Respond only with the Telegram-friendly HTML code, as it is in the example card.\n\n Example drug information card for Gabapentin:\n\n"
+            "question": f"Generate a drug information card for {substance_name}. Find a match (case-insensitive) for the drug name, as provided, in your database. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
             + create_drug_info_card()
             + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
-            "temperature": "0.15",
-            "max_tokens": 5000,
+            "temperature": "0.05",
+            "max_tokens": 10000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
