@@ -140,8 +140,8 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"Generate a drug information card using html for {substance_name}. Find an exact match (case-insensitive) for the drug name, as provided, in your context. Respond only with the HTML code, as it is in the examle card.\n\n Example drug information card:\n\n"
-            + create_drug_info_card(substance_name)
+            "question": f"Generate a drug information card using html for {substance_name}. Find an exact match (case-insensitive) for the drug name, as provided, in your context. Respond only with the HTML code, as it is in the examle card.\n\n Example drug information card for Gabapentin:\n\n"
+            + create_drug_info_card()
             + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
             "temperature": "0.1",
             "max_tokens": 20000,
