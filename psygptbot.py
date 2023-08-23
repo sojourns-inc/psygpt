@@ -248,7 +248,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Format the reply
     reply_text = escape_markdown_v2(f"{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev`")
-
+    print(reply_text)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
