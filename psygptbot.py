@@ -25,7 +25,7 @@ load_dotenv()
 def create_drug_info_card(drug_name):
     drug_name_upper = drug_name.upper()
     search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
-    info_card = f"""[{drug_name_upper}]({search_url}) drug information
+    info_card = f"""{drug_name_upper}
 
 🔭 *Class*
 - ✴️ *Chemical:* ➡️ Gabapentinoids
@@ -96,18 +96,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#\+=-|{}.!'
-    # Escape special characters except inside inline link parentheses
-    result = []
-    inside_parentheses = False
-    for char in text:
-        if char == '(':
-            inside_parentheses = True
-        elif char == ')':
-            inside_parentheses = False
-        if char in escape_chars and (not inside_parentheses or char in '.)\\'):
-            result.append('\\')
-        result.append(char)
-    return ''.join(result)
+    return ''.join('\\' + char if char in escape_chars else char for char in text)
 
 def check_stripe_sub(telegram_user_id):
     user_associations = supabase.table("user_association").select("*").execute()
