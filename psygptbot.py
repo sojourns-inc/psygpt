@@ -25,43 +25,38 @@ load_dotenv()
 def create_drug_info_card(drug_name):
     drug_name_upper = drug_name.upper()
     search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
-    info_card = f"""
-[{drug_name_upper}]({search_url}) drug information
+    info_card = f"""[{drug_name_upper}]({search_url}) drug information
 
 🔭 *Class*
-
-* ✴️ *Chemical:* ➡️ Gabapentinoids
-* ✴️ *Psychoactive:* ➡️ Depressant
+- ✴️ *Chemical:* ➡️ Gabapentinoids
+- ✴️ *Psychoactive:* ➡️ Depressant
 
 ⚖️ *Dosages*
-
-* ✴️ *ORAL ✴️*
+- ✴️ *ORAL* ✴️
   - *Threshold:* 200mg
   - *Light:* 200 - 600mg
   - *Common:* 600 - 900mg
   - *Strong:* 900 - 1200mg
   - *Heavy:* 1200mg
 
-⏱️ *Duration*
-
-* ✴️ *ORAL ✴️*
+⏱️ *Duration:*
+- ✴️ *ORAL* ✴️
   - *Onset:* 30 - 90 minutes
   - *Total:* 5 - 8 hours
 
-⚠️ *Addiction Potential ⚠️*
+⚠️ *Addiction Potential* ⚠️
+- No addiction potential information.
 
-* No addiction potential information.
-
-🧠 *Subjective Effects 🧠*
-
+🧠 *Subjective Effects*
   - *Focus enhancement*
   - *Euphoria*
 
-📈 *Tolerance*
+📈 *Tolerance:*
   - *Full:* with prolonged continuous usage
   - *Baseline:* 7-14 days
 """
     return info_card
+
 
 
 
@@ -252,10 +247,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Format the reply
-    reply_text = f"{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev`"
-
-    # Escape the hyphens for Markdown V2
-    reply_text = escape_markdown_v2(reply_text)
+    reply_text = escape_markdown_v2(f"{data_question['data']['assistant']}\n\nContact: Email: `0@sernyl.dev`")
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
