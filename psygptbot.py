@@ -21,10 +21,9 @@ from algoliasearch.search_client import SearchClient
 load_dotenv()
 
 
-def create_drug_info_card(drug_name):
-    drug_name_upper = drug_name.upper()
-    search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&amp;title=Special%3ASearch&amp;go=Go"
-    info_card = f"""<a href="{search_url}"><b>{drug_name_upper}</b></a>
+def create_drug_info_card():
+    search_url = f"https://psychonautwiki.org/w/index.php?search=Gabapentin&amp;title=Special%3ASearch&amp;go=Go"
+    info_card = f"""<a href="{search_url}"><b>Gabapentin</b></a>
 
 <b>🔭 Class</b>
 - ✴️ <b>Chemical:</b> ➡️ Gabapentinoids
