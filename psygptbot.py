@@ -23,48 +23,43 @@ load_dotenv()
 
 # Constants
 def create_drug_info_card(drug_name):
+    drug_name_upper = drug_name.upper()
     search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&title=Special%3ASearch&go=Go"
-    info_card = f""" *[{drug_name}]({search_url})*
-
+    info_card = f"""
+[{drug_name_upper}]({searchUrl}) drug information
 
 🔭 *Class*
 
 * ✴️ *Chemical:* ➡️ Gabapentinoids
 * ✴️ *Psychoactive:* ➡️ Depressant
 
-
 ⚖️ *Dosages*
 
 * ✴️ *ORAL ✴️*
   - *Threshold:* 200mg
-  - *Light:* 200 \- 600mg
-  - *Common:* 600 \- 900mg
-  - *Strong:* 900 \- 1200mg
+  - *Light:* 200 - 600mg
+  - *Common:* 600 - 900mg
+  - *Strong:* 900 - 1200mg
   - *Heavy:* 1200mg
-
 
 ⏱️ *Duration*
 
 * ✴️ *ORAL ✴️*
-  - *Onset:* 30 \- 90 minutes
-  - *Total:* 5 \- 8 hours
-
+  - *Onset:* 30 - 90 minutes
+  - *Total:* 5 - 8 hours
 
 ⚠️ *Addiction Potential ⚠️*
 
-* No addiction potential information\.
-
+* No addiction potential information.
 
 🧠 *Subjective Effects 🧠*
 
-  - * Focus enhancement
-  - * Euphoria
-
+  - *Focus enhancement*
+  - *Euphoria*
 
 📈 *Tolerance*
-  - * *Full:* with prolonged continuous usage
-  - * *Baseline:* 7\-14 days
-
+  - *Full:* with prolonged continuous usage
+  - *Baseline:* 7-14 days
 """
     return info_card
 
