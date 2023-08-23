@@ -21,7 +21,6 @@ from algoliasearch.search_client import SearchClient
 load_dotenv()
 
 
-# Constants
 def create_drug_info_card(drug_name):
     drug_name_upper = drug_name.upper()
     search_url = f"https://psychonautwiki.org/w/index.php?search={drug_name}&amp;title=Special%3ASearch&amp;go=Go"
@@ -58,7 +57,9 @@ def create_drug_info_card(drug_name):
     return info_card
 
 
-
+def escape_markdown_v2(text):
+    escape_chars = r'_*[]()~`>#\+=-|{}.!'
+    return ''.join('\\' + char if char in escape_chars else char for char in text)
 
 
 # Env constants
@@ -70,17 +71,16 @@ LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 TELETOKEN = os.getenv("TELETOKEN")
+STRIPE_PLAN_ID = os.getenv("STRIPE_PLAN_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 stripe.api_key = os.getenv("STRIPE_API_KEY")
 endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
-STRIPE_PLAN_ID = os.getenv("STRIPE_PLAN_ID")
 
 # Text & info message parsing
 SORRY_MSG = lambda x: f"Sorry, I couldn't fetch the {x}. Please try again later."
 ESCAPE_TEXT = lambda text: text
-# ESCAPE_TEXT = lambda text: re.sub(r"([_\*\[\]\(\)~`>\#\+\-=\|{}\.!])", r"\\1", text)
 
 # Logging
 logging.basicConfig(
@@ -95,9 +95,6 @@ index = client.init_index(INDEX_NAME)
 # Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def escape_markdown_v2(text):
-    escape_chars = r'_*[]()~`>#\+=-|{}.!'
-    return ''.join('\\' + char if char in escape_chars else char for char in text)
 
 def check_stripe_sub(telegram_user_id):
     user_associations = supabase.table("user_association").select("*").execute()
