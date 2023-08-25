@@ -144,7 +144,7 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
             + create_drug_info_card()
             + "\n\nNote: Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
             "temperature": "0.4",
-            "max_tokens": 10000,
+            "max_tokens": 4000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
@@ -158,7 +158,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
             "model": LLM_MODEL_ID,
             "question": f"{query}\n\n(Please respond in a conversational manner. If the context doesn't have specific information about the query, you can say something like 'I'm not sure, but...' or 'I don't have that information, however...'. Please limit your response to 30000 characters max.)",
             "temperature": "0.5",
-            "max_tokens": 10000,
+            "max_tokens": 4000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
