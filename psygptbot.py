@@ -99,6 +99,8 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def check_stripe_sub(telegram_user_id):
+    print("ID:")
+    print(telegram_user_id)
     user_associations = supabase.table("user_association").select("*").execute()
     user_association = None
 
