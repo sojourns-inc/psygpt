@@ -159,7 +159,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
         raw = {
             "model": LLM_MODEL_ID,
             "question": f"{query}\n\n(Please respond in a conversational manner. If the context doesn't have specific information about the query, you can say something like 'I'm not sure, but...' or 'I don't have that information, however...'. Please limit your response to 30000 characters max.)",
-            "temperature": "0.5",
+            "temperature": 0.5,
             "max_tokens": 4000,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
