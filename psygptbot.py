@@ -170,7 +170,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    welcome_text = "Welcome to PsyAI Bot! If you aren't subbed, type /sub to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here]."
+    welcome_text = "Welcome to PsyAI Bot! If you aren't subbed, type /sub to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here].\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl"
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=welcome_text,  # reply_markup=reply_markup
@@ -181,7 +181,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_stripe_sub(update.effective_user.id):
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="You must have an active subscription to use this command.",
+            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl",
         )
         return
 
@@ -217,7 +217,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_stripe_sub(update.effective_user.id):
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: `0@sernyl.dev` / Telegram: @swirnyl",
+            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl",
         )
         return
 
