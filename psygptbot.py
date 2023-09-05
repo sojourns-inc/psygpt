@@ -217,7 +217,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_stripe_sub(update.effective_user.id):
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="You must have an active subscription to use this command.",
+            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: `0@sernyl.dev` / Telegram: @swirnyl",
         )
         return
 
@@ -284,7 +284,7 @@ async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         reply_text = ESCAPE_TEXT(
-            f"{substance_name_cap} - User-Reported Effects\n\n{effects}\n\nContact: Email: `0@sernyl.dev`"
+            f"{substance_name_cap} - User-Reported Effects\n\n{effects}\n\nContact: Email: `0@sernyl.dev` / Telegram: @swirnyl"
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
