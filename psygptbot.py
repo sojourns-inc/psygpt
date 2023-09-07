@@ -60,8 +60,8 @@ def create_drug_info_card():
 
 
 def escape_markdown_v2(text):
-    escape_chars = r'_*[]()~`>#\+=-|{}.!'
-    return ''.join('\\' + char if char in escape_chars else char for char in text)
+    escape_chars = r"_*[]()~`>#\+=-|{}.!"
+    return "".join("\\" + char if char in escape_chars else char for char in text)
 
 
 # Env constants
@@ -98,22 +98,46 @@ index = client.init_index(INDEX_NAME)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def get_or_create_user_association(telegram_user_id):
+    try:
+        user_associations = supabase.table("user_association").select("*").execute()
+        user_association = None
+
+        for association in user_associations.data:
+            if association["telegram_id"] == telegram_user_id:
+                user_association = association
+
+        if not user_association:
+            # Create a new user association with default trial_prompts
+            new_user = {
+                "telegram_id": telegram_user_id,
+                "trial_prompts": 5,
+                "subscription_status": False,
+                "stripe_id": "placeholder"
+            }
+            supabase.table("user_association").insert([new_user]).execute()
+            return new_user
+
+        return user_association
+    except Exception as e:
+        print(f"Error fetching or creating user association: {e}")
+        return None
+
+
 def check_stripe_sub(telegram_user_id):
     print("ID:")
     print(telegram_user_id)
-    user_associations = supabase.table("user_association").select("*").execute()
-    user_association = None
-
-    for association in user_associations.data:
-        if association["telegram_id"] == telegram_user_id:
-            user_association = association
+    user_association = get_or_create_user_association(telegram_user_id=telegram_user_id)
 
     if not user_association:
-        return False
+        return False, 0  # Returning 0 trial_prompts as well
 
     subscription_is_active = user_association["subscription_status"]
+    trial_prompts = (
+        user_association["trial_prompts"] if "trial_prompts" in user_association else 0
+    )
 
-    return subscription_is_active
+    return subscription_is_active, trial_prompts
 
 
 def post_and_parse_url(url: str, payload: dict):
@@ -170,7 +194,9 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    welcome_text = "Welcome to PsyAI Bot! If you aren't subbed, type /sub to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here].\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl"
+    user_association = get_or_create_user_association(telegram_user_id=telegram_id)
+    trial_prompts = user_association["trial_prompts"]
+    welcome_text = f"Welcome to PsyAI Bot! You have {trial_prompts} free prompts remaining.  If you aren't subscribed, send the /sub command to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here].\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl"
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=welcome_text,  # reply_markup=reply_markup
@@ -178,12 +204,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not check_stripe_sub(update.effective_user.id):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl",
-        )
-        return
+    subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
+
+    if not subscription_is_active:
+        if trial_prompts > 0:
+            # Decrease the trial_prompts by 1
+            supabase.table("user_association").update(
+                {"trial_prompts": trial_prompts - 1}
+            ).eq("telegram_id", update.effective_user.id).execute()
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Your trial has ended. Please subscribe using the /sub command to continue using this feature.",
+            )
+            return
 
     query = update.message.text.split("/ask ")[1]
     logger.info(f"Asking: `{query}`")
@@ -214,12 +248,20 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not check_stripe_sub(update.effective_user.id):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="You must have an active subscription to use this command.\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl",
-        )
-        return
+    subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
+
+    if not subscription_is_active:
+        if trial_prompts > 0:
+            # Decrease the trial_prompts by 1
+            supabase.table("user_association").update(
+                {"trial_prompts": trial_prompts - 1}
+            ).eq("telegram_id", update.effective_user.id).execute()
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Your trial has ended. Please subscribe using the /sub command to continue using this feature.",
+            )
+            return
 
     substance_name = update.message.text.split("/info ")[1]
     logger.info(f"Info: `{substance_name}`")
@@ -251,8 +293,9 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=reply_text,
-        parse_mode=telegram.constants.ParseMode.HTML
+        parse_mode=telegram.constants.ParseMode.HTML,
     )
+
 
 async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
