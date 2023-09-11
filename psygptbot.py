@@ -219,7 +219,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    query = update.message.text.split("/ask ")[1]
+    query = "Check your context, and find out: " + update.message.text.split("/ask ")[1]
     logger.info(f"Asking: `{query}`")
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
