@@ -182,7 +182,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"{query}\n\n(Please respond in a conversational manner. If the context doesn't have specific information about the query, you can say something like 'I'm not sure, but...' or 'I don't have that information, however...'. Please limit your response to 30000 characters max.)",
+            "question": f"{query}\n\n(Please respond conversationally to the query. If additional relevant details are available, incorporate that information naturally into your response without directly mentioning the source. If the available information does not fully address the query, feel free to rely on your own knowledge to provide a helpful, friendly response within 30000 characters.)",
             "temperature": 0.5,
             "max_tokens": 4000,
         }
