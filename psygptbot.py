@@ -168,7 +168,7 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
             "model": LLM_MODEL_ID,
             "question": f"Generate a drug information card for {substance_name}. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
             + create_drug_info_card()
-            + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, "IV" instead of "ORAL"). Check the context and provide dosing ranges for the appropriate route of administration.\n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
+            + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context and provide dosing ranges for the appropriate route of administration.\n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
             "temperature": "0.4",
             "max_tokens": 4000,
         }
