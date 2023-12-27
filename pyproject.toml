@@ -8,7 +8,7 @@ readme = "README.md"
 packages = [{include = "psygpt_telegram"}]
 
 [tool.poetry.dependencies]
-python = "3.11.4"
+python = "3.11.0"
 python-telegram-bot = "^20.4"
 algoliasearch = "^3.0.0"
 python-dotenv = "^1.0.0"

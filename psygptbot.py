@@ -168,9 +168,9 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
             "model": LLM_MODEL_ID,
             "question": f"Generate a drug information card for {substance_name}. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
             + create_drug_info_card()
-            + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context for dosing ranges and units related to the route of administration of {substance_name}. If there is a scarcity of data about {substance_name}, obtain this information from anecdotal reports, if they are in your context, or from wherever possible. \n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.",
-            "temperature": "0.5",
-            "max_tokens": 4000,
+            + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context for dosing ranges and units related to the route of administration of {substance_name}. If there is a scarcity of data about {substance_name}, obtain this information from anecdotal reports, if they are in your context, or from wherever possible. \n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.\n\n3. If a dose card for GBL or Gamma-Butyrolactone is requested, the 'threhsold' dose should be 0.3ml, the 'light' dose should start at 0.5ml, the onset should be 3-10 min, and the duration should be 1-2 hours.",
+            "temperature": 0.5,
+            "max_tokens": 4096,
         }
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
@@ -196,7 +196,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     user_association = get_or_create_user_association(telegram_user_id=telegram_id)
     trial_prompts = user_association["trial_prompts"]
-    welcome_text = f"Welcome to PsyAI Bot! You have {trial_prompts} free prompts remaining.  If you aren't subscribed, send the /sub command to do so. Type /info [Drug Name] to request info about a particular substance. You can also ask me general questions about substances by typing /ask [Your question here].\n\n\nFor help, please contact:\n\nEmail: 0@sernyl.dev / Telegram: @swirnyl"
+    welcome_text = """
+    Welcome to PsyAI Bot! PsyAI is your AI-powered guide that answers questions about drugs in an unbiased, judgement-free way. The bot sources dosage, duration, tolerance, and harm reduction information from [PsychonautWiki](http://www.psychonautwiki.org), [Effect Index](https://effectindex.com) and a plethora of curated information sources.
+
+    - You have {} FREE trial prompts remaining.
+
+    - If you aren't subscribed, send the /sub command to do so.
+
+    - Type /info [Drug Name] to request info about a particular substance.
+
+    - Type /ask [Your question here] to ask me general questions about substances. Make sure to include your question after '/ask'!
+
+    - The bot will ONLY respond to messages that start with either /ask, or /info.
+
+    For help, please contact:
+
+    Email: 0@sernyl.dev / Telegram: @swirnyl / Discord: sernyl
+    """.format(trial_prompts)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=welcome_text,  # reply_markup=reply_markup
@@ -296,7 +312,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=telegram.constants.ParseMode.HTML,
     )
 
-
+""" TODO: DEPRECATED
 async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
@@ -340,6 +356,7 @@ async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="Sorry, something went wrong. Please try again later.",
         )
+    """
 
 
 async def start_subscription(update, context):
@@ -393,6 +410,7 @@ if __name__ == "__main__":
             & telegram.ext.filters.Regex(r"^/ask")
         ),
     )
+    """ TODO: DEPRECATED
     fx_handler = MessageHandler(
         callback=respond_to_fx,
         filters=(
@@ -401,6 +419,7 @@ if __name__ == "__main__":
             & telegram.ext.filters.Regex(r"^/fx")
         ),
     )
+    """
 
     # Create the subscription command handler
     sub_handler = CommandHandler("sub", start_subscription)
@@ -410,6 +429,6 @@ if __name__ == "__main__":
     application.add_handler(ask_handler)
     application.add_handler(start_handler)
     application.add_handler(info_handler)
-    application.add_handler(fx_handler)
+    # application.add_handler(fx_handler)  TODO: DEPRECATED
 
     application.run_polling()
