@@ -70,12 +70,17 @@ APPLICATION_ID = os.getenv("ALGO_APP_ID")
 API_KEY = os.getenv("ALGO_API_KEY")
 INDEX_NAME = os.getenv("ALGO_INDEX")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
+LLM_Q_SUFFIX = os.getenv("LLM_Q_SUFFIX")
+LLM_RESTRICT_MSG = os.getenv("LLM_RESTRICT_MSG")
+LLM_INFO_PROMPT_SUFIX = os.getenv("LLM_INFO_PROMPT_SUFIX")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 TELETOKEN = os.getenv("TELETOKEN")
 STRIPE_PLAN_ID = os.getenv("STRIPE_PLAN_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+PATREON_LINKER_SUCCESS_URL = os.getenv("PATREON_LINKER_SUCCESS_URL")
+PATREON_LINKER_CANCEL_URL = os.getenv("PATREON_LINKER_CANCEL_URL")
 
 stripe.api_key = os.getenv("STRIPE_API_KEY")
 endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
@@ -83,6 +88,8 @@ endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
 # Text & info message parsing
 SORRY_MSG = lambda x: f"Sorry, I couldn't fetch the {x}. Please try again later."
 ESCAPE_TEXT = lambda text: text
+
+RESTRICTED_USER_IDS = [1747495744, 1182185320]  # replace with actual user IDs
 
 # Logging
 logging.basicConfig(
@@ -113,7 +120,7 @@ def get_or_create_user_association(telegram_user_id):
                 "telegram_id": telegram_user_id,
                 "trial_prompts": 5,
                 "subscription_status": False,
-                "stripe_id": "placeholder"
+                "stripe_id": "placeholder",
             }
             supabase.table("user_association").insert([new_user]).execute()
             return new_user
@@ -166,9 +173,11 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"Generate a drug information card for {substance_name}. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
-            + create_drug_info_card()
-            + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context for dosing ranges and units related to the route of administration of {substance_name}. If there is a scarcity of data about {substance_name}, obtain this information from anecdotal reports, if they are in your context, or from wherever possible. \n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.\n\n3. If a dose card for GBL or Gamma-Butyrolactone is requested, the 'threhsold' dose should be 0.3ml, the 'light' dose should start at 0.5ml, the onset should be 3-10 min, and the duration should be 1-2 hours.",
+            "question": (
+                f"Generate a drug information card for {substance_name}. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
+                + create_drug_info_card()
+                + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context for dosing ranges and units related to the route of administration of {substance_name}. If there is a scarcity of data about {substance_name}, obtain this information from anecdotal reports, if they are in your context, or from wherever possible. \n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.\n\n3. If a dose card for GBL or Gamma-Butyrolactone is requested, the 'threhsold' dose should be 0.3ml, the 'light' dose should start at 0.5ml, the onset should be 3-10 min, and the duration should be 1-2 hours."
+            ),
             "temperature": 0.5,
             "max_tokens": 4096,
         }
@@ -182,7 +191,7 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
     try:
         raw = {
             "model": LLM_MODEL_ID,
-            "question": f"{query}\n\n(Please respond conversationally to the query. If additional relevant details are available, incorporate that information naturally into your response without directly mentioning the source. If the available information does not fully address the query, feel free to rely on your own knowledge to provide a helpful, friendly response within 30000 characters.)",
+            "question": f"{query}" + LLM_Q_SUFFIX,
             "temperature": 0.5,
             "max_tokens": 4000,
         }
@@ -220,6 +229,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    print(type(user_id))
+    # Check if the user is restricted
+    if user_id in RESTRICTED_USER_IDS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=LLM_RESTRICT_MSG
+        )
+        return
+
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
     if not subscription_is_active:
@@ -264,6 +282,15 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    print(type(user_id))
+    # Check if the user is restricted
+    if user_id in RESTRICTED_USER_IDS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=LLM_RESTRICT_MSG
+        )
+        return
+
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
     if not subscription_is_active:
@@ -373,8 +400,8 @@ async def start_subscription(update, context):
         ],
         mode="subscription",
         metadata={"telegram_id": user_telegram_id},
-        success_url="https://psyai-patreon-linker-97bd2997eae8.herokuapp.com/success",
-        cancel_url="https://psyai-patreon-linker-97bd2997eae8.herokuapp.com/cancel",
+        success_url=PATREON_LINKER_SUCCESS_URL,
+        cancel_url=PATREON_LINKER_CANCEL_URL,
     )
 
     # Payment URL
