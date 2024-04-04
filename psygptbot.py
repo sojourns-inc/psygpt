@@ -11,52 +11,63 @@ from telegram.ext import (
     ContextTypes,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
 )
-from telegram.constants import ParseMode, ChatAction
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime
+from telegram.constants import ChatAction
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
 from supabase import create_client
-from algoliasearch.search_client import SearchClient
-
 
 load_dotenv()
 
 
 def create_drug_info_card():
-    search_url = f"https://psychonautwiki.org/w/index.php?search=Gabapentin&amp;title=Special%3ASearch&amp;go=Go"
-    info_card = f"""<a href="{search_url}"><b>Gabapentin</b></a>
+    info_card = f"""<a href="{{search_url}}"><b>{{drug_name}}</b></a>
 
 <b>🔭 Class</b>
-- ✴️ <b>Chemical:</b> ➡️ Gabapentinoids
-- ✴️ <b>Psychoactive:</b> ➡️ Depressant
+- ✴️ <b>Chemical:</b> ➡️ {{chemical_class}}
+- ✴️ <b>Psychoactive:</b> ➡️ {{psychoactive_class}}
 
 <b>⚖️ Dosages</b>
-- ✴️ <b>ORAL ✴️</b>
-  - <b>Threshold:</b> 200mg
-  - <b>Light:</b> 200 - 600mg
-  - <b>Common:</b> 600 - 900mg
-  - <b>Strong:</b> 900 - 1200mg
-  - <b>Heavy:</b> 1200mg
+{{dosage_info}}
 
 <b>⏱️ Duration:</b>
-- ✴️ <b>ORAL ✴️</b>
-  - <b>Onset:</b> 30 - 90 minutes
-  - <b>Total:</b> 5 - 8 hours
+{{duration_info}}
 
 <b>⚠️ Addiction Potential ⚠️</b>
-- No addiction potential information.
+{{addiction_potential}}
 
 <b> Notes </b>
-- Likely to have a cross-tolerance with other Gabapentinoids, such as Pregabalin and Mirogabalin.
+{{notes}}
 
 <b>🧠 Subjective Effects</b>
-  - <b>Focus enhancement</b>
-  - <b>Euphoria</b>
+{{subjective_effects}}
 
 <b>📈 Tolerance:</b>
-  - <b>Full:</b> with prolonged continuous usage
-  - <b>Baseline:</b> 7-14 days
+{{tolerance_info}}
 """
     return info_card
+
+
+def custom_dose_card_fxe():
+    return """
+Here's a concise dosage chart for FXE based on user experiences from Reddit:
+
+**Intramuscular (IM) Injection:**
+- Threshold: 0-25 mg
+- Light: 25-50 mg
+- Moderate: 50-75 mg
+- Strong: 75-100 mg
+- Heavy: 100+ mg
+
+**Intranasal:**
+- Threshold: 20 mg
+- Light to Party Dose: 20-60 mg
+- Moderate to Strong: 70-100 mg
+- Potential Hole: 125-150 mg
+
+These ranges are based on anecdotal reports from the r/FXE subreddit, and should be approached with caution.
+"""
 
 
 def escape_markdown_v2(text):
@@ -64,8 +75,18 @@ def escape_markdown_v2(text):
     return "".join("\\" + char if char in escape_chars else char for char in text)
 
 
+def sanitize_html(html):
+    allowed_tags = ["a", "b", "i", "code", "pre"]
+    sanitized_html = re.sub(
+        r"<(?!/?({})\b)[^>]*>".format("|".join(allowed_tags)), "", html
+    )
+    return sanitized_html
+
+
 # Env constants
 BASE_URL = os.getenv("BASE_URL")
+DOWNTIME = int(os.getenv("DOWNTIME"))
+FREEMODE = int(os.getenv("FREEMODE"))
 APPLICATION_ID = os.getenv("ALGO_APP_ID")
 API_KEY = os.getenv("ALGO_API_KEY")
 INDEX_NAME = os.getenv("ALGO_INDEX")
@@ -74,6 +95,8 @@ LLM_Q_SUFFIX = os.getenv("LLM_Q_SUFFIX")
 LLM_RESTRICT_MSG = os.getenv("LLM_RESTRICT_MSG")
 LLM_INFO_PROMPT_SUFIX = os.getenv("LLM_INFO_PROMPT_SUFIX")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID")
+LLM_ALT_MODEL_ID = os.getenv("LLM_ALT_MODEL_ID")
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 TELETOKEN = os.getenv("TELETOKEN")
 STRIPE_PLAN_ID = os.getenv("STRIPE_PLAN_ID")
@@ -89,7 +112,30 @@ endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
 SORRY_MSG = lambda x: f"Sorry, I couldn't fetch the {x}. Please try again later."
 ESCAPE_TEXT = lambda text: text
 
-RESTRICTED_USER_IDS = [1747495744, 1182185320]  # replace with actual user IDs
+RESTRICTED_USER_IDS = [
+    1747495744,
+    5414139998,
+    1283495860,
+    6001084110,
+    6600777358,
+    6230702325,
+]
+RESTRICTED_GROUP_IDS = [
+    # -1002129246518
+]
+PRIVILEGED_USER_IDS = [6110009549, 6200970504, 7083535246, 4591373]  # Jill from BL
+PRIVILEGED_GROUPS = [
+    -1002122143024,
+    -1002118636626,
+    -1001606801032,
+    -1001281620392,
+    -1001281620392,
+    -1001817213563,
+    -1001803279273,
+    -1002129246518,
+    -1001520639767,
+    -1002027298185,
+]
 
 # Logging
 logging.basicConfig(
@@ -97,37 +143,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger("PsyAI Log 🤖")
 
-# Algolia
-client = SearchClient.create(APPLICATION_ID, API_KEY)
-index = client.init_index(INDEX_NAME)
-
 # Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def calc_downtime():
+    future_date = datetime(year=2024, month=2, day=28, hour=14, minute=25)
+    now = datetime.now()
+    difference = future_date - now
+    total_seconds = difference.total_seconds()
+
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+
+    return f"{int(hours)} hours and {int(minutes)} minutes"
+
+
 def get_or_create_user_association(telegram_user_id):
     try:
-        user_associations = supabase.table("user_association").select("*").execute()
-        user_association = None
+        new_user = {
+            "telegram_id": telegram_user_id,
+            "trial_prompts": 5,
+            "subscription_status": False,
+            "stripe_id": "placeholder",
+        }
+        response = (
+            supabase.table("user_association")
+            .upsert(new_user, on_conflict="telegram_id")
+            .execute()
+        )
 
-        for association in user_associations.data:
-            if association["telegram_id"] == telegram_user_id:
-                user_association = association
-
-        if not user_association:
-            # Create a new user association with default trial_prompts
-            new_user = {
-                "telegram_id": telegram_user_id,
-                "trial_prompts": 5,
-                "subscription_status": False,
-                "stripe_id": "placeholder",
-            }
-            supabase.table("user_association").insert([new_user]).execute()
-            return new_user
-
-        return user_association
+        if response.data:
+            user_data = response.data[0]
+            logger.info(f"User association found or created: {user_data}")
+            return user_data
+        else:
+            logger.warning(
+                f"User association not found or created for telegram_id: {telegram_user_id}"
+            )
+            return None
     except Exception as e:
-        print(f"Error fetching or creating user association: {e}")
+        logger.error(f"Error fetching or creating user association: {e}")
         return None
 
 
@@ -163,38 +219,49 @@ def post_and_parse_url(url: str, payload: dict):
 def fetch_new_chat_id_from_psygpt(query: str):
     try:
         raw = {"name": f"Card => {query}"}
-        return post_and_parse_url(f" {BASE_URL}/chat", raw)
+        return post_and_parse_url(f"{BASE_URL}/chat", raw)
     except Exception as error:
         logger.error(f"Error in fetch_new_chat_id_from_psygpt: {error}")
         return None
 
 
-def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str):
+def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str, user_id: int):
     try:
         raw = {
-            "model": LLM_MODEL_ID,
+            "model": LLM_ALT_MODEL_ID,
             "question": (
-                f"Generate a drug information card for {substance_name}. Respond only with the card. Use the provided example and follow the exact syntax given.\n\n Example drug information card for Gabapentin:\n\n"
-                + create_drug_info_card()
-                + f"\n\nNotes 1. Even though the dosage information in the example card (for Gabapentin) relates to one particular route of administration (ORAL), the information provided by the context for {substance_name} might pertained to a different route of administration (for example, 'IV' instead of 'ORAL'). Check the context for dosing ranges and units related to the route of administration of {substance_name}. If there is a scarcity of data about {substance_name}, obtain this information from anecdotal reports, if they are in your context, or from wherever possible. \n\n2. Not every section from the example dose card is required, and you may add additional sections if needed. Please keep the formatting compact and uniform using HTML.\n\n3. If a dose card for GBL or Gamma-Butyrolactone is requested, the 'threhsold' dose should be 0.3ml, the 'light' dose should start at 0.5ml, the onset should be 3-10 min, and the duration should be 1-2 hours."
+                f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
+                f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
+                f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
+                f"\n\nIf the drug in question is FXE (also known as Fluorexetamine, or CanKet, or Canket), add this to your context: {custom_dose_card_fxe()}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
+                f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
+                f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
+                f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
             ),
-            "temperature": 0.5,
-            "max_tokens": 4096,
+            "temperature": 0.25,
+            "max_tokens": 3000,
         }
-        return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
+
+        response = post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
+        print(response)
+        if response:
+            sanitized_html = sanitize_html(response["data"]["assistant"])
+            response["data"]["assistant"] = sanitized_html
+        return response
     except Exception as error:
-        logger.error(f"Error in fetch_question_from_psygpt: {error}")
+        logger.error(f"Error in fetch_dose_card_from_psygpt: {error}")
         return None
 
 
-def fetch_question_from_psygpt(query: str, chat_id: str):
+def fetch_question_from_psygpt(query: str, chat_id: str, user_id: int):
     try:
         raw = {
-            "model": LLM_MODEL_ID,
-            "question": f"{query}" + LLM_Q_SUFFIX,
+            "model": LLM_MODEL_ID if user_id != ADMIN_TELEGRAM_ID else LLM_ALT_MODEL_ID,
+            "question": f"{query}{LLM_Q_SUFFIX}",
             "temperature": 0.5,
-            "max_tokens": 4000,
+            "max_tokens": 4096,
         }
+        print(raw)
         return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
     except Exception as error:
         logger.error(f"Error in fetch_question_from_psygpt: {error}")
@@ -202,13 +269,25 @@ def fetch_question_from_psygpt(query: str, chat_id: str):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
+    calc_downtime()
+
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    channel_id = update.message.message_thread_id
+    message_id = update.effective_message.message_id
+
+    telegram_id = user_id
+    print(telegram_id)
     user_association = get_or_create_user_association(telegram_user_id=telegram_id)
-    trial_prompts = user_association["trial_prompts"]
+    print(user_association)
+    
+    trial_prompts = (
+        "UNLIMITED"  # if is_free else str(user_association["trial_prompts"])
+    )
     welcome_text = """
     Welcome to PsyAI Bot! PsyAI is your AI-powered guide that answers questions about drugs in an unbiased, judgement-free way. The bot sources dosage, duration, tolerance, and harm reduction information from [PsychonautWiki](http://www.psychonautwiki.org), [Effect Index](https://effectindex.com) and a plethora of curated information sources.
 
-    - You have {} FREE trial prompts remaining.
+    - You have {} FREE prompts remaining.
 
     - If you aren't subscribed, send the /sub command to do so.
 
@@ -220,27 +299,104 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     For help, please contact:
 
-    Email: 0@sernyl.dev / Telegram: @swirnyl / Discord: sernyl
-    """.format(trial_prompts)
+    Email: 0@sernyl.dev / Telegram: @sernylan / Discord: sernyl
+    """.format(
+        trial_prompts
+    )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=welcome_text,  # reply_markup=reply_markup
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
 
-async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def respond_to_tip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Your existing code to calculate downtime or any setup
+    calc_downtime()
+
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    # Assuming message_thread_id is relevant for threads in channels; adjust as needed
+    channel_id = getattr(update.message, "message_thread_id", None)
+
+    # Define the donation text and the inline keyboard for the thumbs up reaction
+    donate_text = (
+        "If you find this service helpful, please consider tipping to support it:\n"
+        "BTC Address  --  bc1q43a8d5wesfc0hzuq5sg9wggfaeaacu7unwpqvj\n"
+        "If you're considering leaving a tip, please notify the creator by tapping the heart up below. Thank you!"
+    )
+    inline_keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("❤️", callback_data="agree_to_donate")]]
+    )
+
+    # Send the message with the inline keyboard
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=donate_text,
+        reply_markup=inline_keyboard,
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+    )
+
+
+async def handle_donation_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # Optional: Provides feedback to the user that their click was registered
+
+    # Check if the reaction is for agreeing to donate
+    if query.data == "agree_to_donate":
+        # Notify the bot creator about the donation agreement
+        notify_text = f"User {query.from_user.id} has agreed to donate."
+        await context.bot.send_message(chat_id=5020506796, text=notify_text)
+
+
+async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    calc_downtime()
+
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    channel_id = update.message.message_thread_id
+    message_id = update.effective_message.message_id
+
     print(type(user_id))
+    print(chat_id)
+    print(channel_id)
+
+    if DOWNTIME and user_id != 5020506796:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
+        )
+        return
+
     # Check if the user is restricted
     if user_id in RESTRICTED_USER_IDS:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id, text=LLM_RESTRICT_MSG
+            chat_id=chat_id,
+            text=LLM_RESTRICT_MSG,
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
+        )
+        return
+
+    if chat_id in RESTRICTED_GROUP_IDS:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Sorry, I couldn't fetch the question. Please try again later.",
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
         )
         return
 
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
-    if not subscription_is_active:
+    if (
+        not bool(FREEMODE)
+        and not subscription_is_active
+        and chat_id not in PRIVILEGED_GROUPS
+        and user_id not in PRIVILEGED_USER_IDS
+    ):
         if trial_prompts > 0:
             # Decrease the trial_prompts by 1
             supabase.table("user_association").update(
@@ -248,52 +404,117 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ).eq("telegram_id", update.effective_user.id).execute()
         else:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="Your trial has ended. Please subscribe using the /sub command to continue using this feature.",
+                message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+                reply_to_message_id=message_id,
             )
             return
 
-    query = "Check your context, and find out: " + update.message.text.split("/ask ")[1]
+    query = update.message.text.split("/ask ")[1]
+
     logger.info(f"Asking: `{query}`")
+
+    # Send the "thinking" message as a reply to the original message
+    thinking_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text="One moment, PsyAI is thinking...",
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+        reply_to_message_id=message_id,
+    )
+
+    # Start showing the typing indicator
     await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING
+        chat_id=chat_id,
+        action=ChatAction.TYPING,
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
     data_chat = fetch_new_chat_id_from_psygpt(query)
     if not data_chat:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             text=SORRY_MSG("chat ID"),
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
         )
         return
-    data_question = fetch_question_from_psygpt(query, data_chat["data"]["chat_id"])
+
+    query = "Check your context, and find out: " + query
+
+    data_question = fetch_question_from_psygpt(
+        query, data_chat["data"]["chat_id"], user_id=user_id
+    )
     if not data_question:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             text=SORRY_MSG("question"),
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
         )
         return
+
     reply_text = ESCAPE_TEXT(f"{data_question['data']['assistant']}\n")
 
+    # Send the actual response
     await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=reply_text,
+        chat_id=chat_id,
+        text=reply_text + ("\n\n❤️" if chat_id in PRIVILEGED_GROUPS else ""),
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+        reply_to_message_id=message_id,
+    )
+
+    # Delete the "thinking" message
+    await context.bot.delete_message(
+        chat_id=chat_id, message_id=thinking_message.message_id
     )
 
 
 async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    calc_downtime()
+
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    channel_id = update.message.message_thread_id
+    message_id = update.effective_message.message_id
+
     print(type(user_id))
-    # Check if the user is restricted
-    if user_id in RESTRICTED_USER_IDS:
+    print(chat_id)
+
+    if bool(DOWNTIME) and user_id != 5020506796:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id, text=LLM_RESTRICT_MSG
+            chat_id=chat_id,
+            text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
         )
         return
 
+    if user_id in RESTRICTED_USER_IDS:
+        await context.bot.send_message(
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            chat_id=chat_id,
+            text=LLM_RESTRICT_MSG,
+            reply_to_message_id=message_id,
+        )
+        return
+
+    if chat_id in RESTRICTED_GROUP_IDS:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Sorry, I couldn't fetch the question. Please try again later.",
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            reply_to_message_id=message_id,
+        )
+        return
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
-    if not subscription_is_active:
+    if (
+        not bool(FREEMODE)
+        and not subscription_is_active
+        and chat_id not in PRIVILEGED_GROUPS
+        and user_id not in PRIVILEGED_USER_IDS
+    ):
         if trial_prompts > 0:
             # Decrease the trial_prompts by 1
             supabase.table("user_association").update(
@@ -301,89 +522,70 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ).eq("telegram_id", update.effective_user.id).execute()
         else:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="Your trial has ended. Please subscribe using the /sub command to continue using this feature.",
+                message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+                reply_to_message_id=message_id,
             )
             return
 
     substance_name = update.message.text.split("/info ")[1]
     logger.info(f"Info: `{substance_name}`")
+
+    # Send the "thinking" message as a reply to the original message
+    thinking_message = await context.bot.send_message(
+        chat_id=chat_id,
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+        text="One moment, PsyAI is thinking...",
+        reply_to_message_id=message_id,
+    )
+
+    # Start showing the typing indicator
     await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING
+        chat_id=chat_id,
+        action=ChatAction.TYPING,
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
     data_chat = fetch_new_chat_id_from_psygpt(substance_name)
     if not data_chat:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            chat_id=chat_id,
             text=SORRY_MSG("chat ID"),
+            reply_to_message_id=message_id,
         )
         return
 
     data_question = fetch_dose_card_from_psygpt(
-        substance_name, data_chat["data"]["chat_id"]
+        substance_name, data_chat["data"]["chat_id"], user_id=user_id
     )
     if not data_question:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+            chat_id=chat_id,
             text=SORRY_MSG("question"),
+            reply_to_message_id=message_id,
         )
         return
 
     # Format the reply
-    reply_text = f"{data_question['data']['assistant']}"
-    print(reply_text)
+    reply_text = f"{data_question['data']['assistant']}".replace("```html", "").replace(
+        "```", ""
+    )
+
+    # Send the actual response
     await context.bot.send_message(
-        chat_id=update.effective_chat.id,
+        chat_id=chat_id,
+        message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
         text=reply_text,
         parse_mode=telegram.constants.ParseMode.HTML,
     )
 
-""" TODO: DEPRECATED
-async def respond_to_fx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING
+    # Delete the "thinking" message
+    await context.bot.delete_message(
+        chat_id=chat_id, message_id=thinking_message.message_id
     )
-    substance_name = update.message.text.lower().split("/fx ")[1]
-    logger.info(f"FX: `{substance_name}`")
-    substance_name_cap = substance_name.capitalize()
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING
-    )
-
-    try:
-        results = index.search(substance_name)["hits"]
-        if not results:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Sorry, I couldn't fetch the effects. Please try again later.",
-            )
-            return
-
-        effects = "\n\n".join(
-            [
-                f"* {hit['effect']} : {hit['detail']}"
-                if hit["detail"]
-                else f"* {hit['effect']}"
-                for hit in results[:8]
-            ]
-        )
-
-        reply_text = ESCAPE_TEXT(
-            f"{substance_name_cap} - User-Reported Effects\n\n{effects}\n\nContact: Email: `0@sernyl.dev` / Telegram: @swirnyl"
-        )
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=reply_text,
-            parse_mode=ParseMode.MARKDOWN,
-        )
-    except Exception as error:
-        print(f"Error in respond_to_fx: {str(error)}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Sorry, something went wrong. Please try again later.",
-        )
-    """
 
 
 async def start_subscription(update, context):
@@ -437,25 +639,18 @@ if __name__ == "__main__":
             & telegram.ext.filters.Regex(r"^/ask")
         ),
     )
-    """ TODO: DEPRECATED
-    fx_handler = MessageHandler(
-        callback=respond_to_fx,
-        filters=(
-            telegram.ext.filters.COMMAND
-            & telegram.ext.filters.TEXT
-            & telegram.ext.filters.Regex(r"^/fx")
-        ),
-    )
-    """
 
-    # Create the subscription command handler
     sub_handler = CommandHandler("sub", start_subscription)
+    tip_handler = CommandHandler("tip", respond_to_tip)
+    donation_reaction_handler = CallbackQueryHandler(handle_donation_reaction)
 
-    # Add the handler to the application
-    application.add_handler(sub_handler)
-    application.add_handler(ask_handler)
     application.add_handler(start_handler)
     application.add_handler(info_handler)
-    # application.add_handler(fx_handler)  TODO: DEPRECATED
+    application.add_handler(sub_handler)
+    application.add_handler(ask_handler)
+    application.add_handler(tip_handler)
+    application.add_handler(donation_reaction_handler)
+
+    menu_button = MenuButtonCommands()
 
     application.run_polling()
