@@ -38,7 +38,7 @@ def create_drug_info_card():
 {{addiction_potential}}
 
 <b>🚫 Interactions 🚫</b>
-{{addiction_potential}}
+{{interactions_info}}
 
 <b> Notes </b>
 {{notes}}
