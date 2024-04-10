@@ -31,10 +31,13 @@ def create_drug_info_card():
 <b>⚖️ Dosages</b>
 {{dosage_info}}
 
-<b>⏱️ Duration:</b>
+<b>⏱️ Duration</b>
 {{duration_info}}
 
 <b>⚠️ Addiction Potential ⚠️</b>
+{{addiction_potential}}
+
+<b>🚫 Interactions 🚫</b>
 {{addiction_potential}}
 
 <b> Notes </b>
@@ -43,8 +46,11 @@ def create_drug_info_card():
 <b>🧠 Subjective Effects</b>
 {{subjective_effects}}
 
-<b>📈 Tolerance:</b>
+<b>📈 Tolerance</b>
 {{tolerance_info}}
+
+<b>🕒 Half-life</b>
+{{half_life_info}}
 """
     return info_card
 
@@ -119,9 +125,11 @@ RESTRICTED_USER_IDS = [
     6001084110,
     6600777358,
     6230702325,
+    6404147085,
 ]
 RESTRICTED_GROUP_IDS = [
     # -1002129246518
+    -1001315238422
 ]
 PRIVILEGED_USER_IDS = [6110009549, 6200970504, 7083535246, 4591373]  # Jill from BL
 PRIVILEGED_GROUPS = [
@@ -239,7 +247,7 @@ def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str, user_id: int)
                 f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
             ),
             "temperature": 0.25,
-            "max_tokens": 3000,
+            "max_tokens": 4000,
         }
 
         response = post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
@@ -580,6 +588,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
         text=reply_text,
         parse_mode=telegram.constants.ParseMode.HTML,
+        reply_to_message_id=message_id,
     )
 
     # Delete the "thinking" message
