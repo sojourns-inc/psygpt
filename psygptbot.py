@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional
 import requests
 import re
 import stripe
@@ -13,7 +14,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram.constants import ChatAction
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
 from supabase import create_client
@@ -21,38 +22,69 @@ from supabase import create_client
 load_dotenv()
 
 
+class RateLimiter:
+    def __init__(self, max_requests, window_size):
+        self.requests = {}
+        self.max_requests = max_requests
+        self.window_size = window_size
+
+    def allow_request(self, key):
+        current_time = datetime.now()
+        if key not in self.requests:
+            self.requests[key] = []
+        # Filter out requests outside of the window
+        self.requests[key] = [
+            t for t in self.requests[key] if t > current_time - self.window_size
+        ]
+
+        if len(self.requests[key]) < self.max_requests:
+            self.requests[key].append(current_time)
+            return True
+        return False
+
+
+rate_limiter = RateLimiter(max_requests=5, window_size=timedelta(hours=1))
+
+
 def create_drug_info_card():
     info_card = f"""<a href="{{search_url}}"><b>{{drug_name}}</b></a>
 
-<b>🔭 Class</b>
+🔭 <b>Class</b>
 - ✴️ <b>Chemical:</b> ➡️ {{chemical_class}}
 - ✴️ <b>Psychoactive:</b> ➡️ {{psychoactive_class}}
 
-<b>⚖️ Dosages</b>
+⚖️ <b>Dosages</b>
 {{dosage_info}}
 
-<b>⏱️ Duration</b>
+⏱️ <b>Duration</b>
 {{duration_info}}
 
-<b>⚠️ Addiction Potential ⚠️</b>
+⚠️ <b>Addiction Potential</b> ⚠️
 {{addiction_potential}}
 
-<b>🚫 Interactions 🚫</b>
+🚫 <b>Interactions</b> 🚫
 {{interactions_info}}
 
-<b> Notes </b>
+<b>Notes</b>
 {{notes}}
 
-<b>🧠 Subjective Effects</b>
+🧠 <b>Subjective Effects</b>
 {{subjective_effects}}
 
-<b>📈 Tolerance</b>
+📈 <b>Tolerance</b>
 {{tolerance_info}}
 
-<b>🕒 Half-life</b>
+🕒 <b>Half-life</b>
 {{half_life_info}}
 """
     return info_card
+
+
+def format_message(input_string):
+    # Remove Markdown code block syntax if present
+    formatted_string = input_string.replace("```html", "").replace("```", "")
+
+    return formatted_string
 
 
 def custom_dose_card_fxe():
@@ -76,6 +108,28 @@ These ranges are based on anecdotal reports from the r/FXE subreddit, and should
 """
 
 
+def custom_dose_card_dmxe():
+    return """
+DMXE (Deoxymethoxetamine, 3D-MXE)
+
+The effects of DMXE (deoxymethoxetamine) are most similar to MXE but a bit weaker and “smoother.” MXE has a higher tendency to produce scary or uncomfortable dissociated states — users feel confused, disorientated, and afraid. DMXE can produce the same but is more likely to induce all the positive qualities of these compounds — a “wonky” feeling of dissociation from the body, trippy hallucinations, and feelings of calmness and euphoria.
+With that said, DMXE is not widely available, and the trip reports covering the subjective effects of this drug are varied. The general consensus is that it’s weaker and smoother than other MXE, PCP, and PCE analogs.
+
+The receptor Ki values for DMXE have not been reported.
+
+DMXE Specs:
+Chemical Name :: Deoxymethoxetamine
+Status :: Research Chemical 🧪
+Duration of Effects :: 2-4 hours
+Estimated Threshold Dose :: 5 mg
+Common Dose :: 20-60 mg
+PubChem ID :: 157010705
+CAS# :: 2666932-45-0
+
+Source: ["Arylcyclohexylamines" on Tripsitter.com](https://tripsitter.com/psychedelics/arylcyclohexylamines/)
+"""
+
+
 def escape_markdown_v2(text):
     escape_chars = r"_*[]()~`>#\+=-|{}.!"
     return "".join("\\" + char if char in escape_chars else char for char in text)
@@ -89,8 +143,50 @@ def sanitize_html(html):
     return sanitized_html
 
 
+def convert_to_telegram_html(text):
+    # Convert headers
+    text = re.sub(r"## (.*)", r"<b>\1</b>", text)
+
+    # Convert bold
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.*?)__", r"<u>\1</u>", text)
+
+    # Convert italic
+    text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+    text = re.sub(r"_(.*?)_", r"<i>\1</i>", text)
+
+    # Convert underline
+    text = re.sub(r"\+\+(.*?)\+\+", r"<u>\1</u>", text)
+
+    # Convert strikethrough
+    text = re.sub(r"~~(.*?)~~", r"<s>\1</s>", text)
+
+    # Convert spoilers
+    text = re.sub(r"\|\|(.*?)\|\|", r'<span class="tg-spoiler">\1</span>', text)
+
+    # Convert inline URLs
+    text = re.sub(r"\[(.*?)\]\((http[s]?:\/\/.*?)\)", r'<a href="\2">\1</a>', text)
+
+    # Convert inline mentions
+    text = re.sub(
+        r"\[(.*?)\]\(tg:\/\/user\?id=(\d+)\)", r'<a href="tg://user?id=\2">\1</a>', text
+    )
+
+    # Convert inline fixed-width code
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+
+    # Convert pre-formatted fixed-width code block
+    text = re.sub(r"```([^`]*)```", r"<pre>\1</pre>", text, flags=re.DOTALL)
+
+    # Convert block quotes
+    text = re.sub(r"^> (.*)", r"<blockquote>\1</blockquote>", text, flags=re.MULTILINE)
+
+    return text
+
+
 # Env constants
 BASE_URL = os.getenv("BASE_URL")
+BASE_URL_BETA = os.getenv("BASE_URL_BETA")
 DOWNTIME = int(os.getenv("DOWNTIME"))
 FREEMODE = int(os.getenv("FREEMODE"))
 APPLICATION_ID = os.getenv("ALGO_APP_ID")
@@ -102,6 +198,8 @@ LLM_RESTRICT_MSG = os.getenv("LLM_RESTRICT_MSG")
 LLM_INFO_PROMPT_SUFIX = os.getenv("LLM_INFO_PROMPT_SUFIX")
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID")
 LLM_ALT_MODEL_ID = os.getenv("LLM_ALT_MODEL_ID")
+LLM_BETA_MODEL_ID = os.getenv("LLM_BETA_MODEL_ID")
+LLM_BETA_MESSAGE = os.getenv("LLM_BETA_MESSAGE")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID"))
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 TELETOKEN = os.getenv("TELETOKEN")
@@ -126,10 +224,15 @@ RESTRICTED_USER_IDS = [
     6600777358,
     6230702325,
     6404147085,
+    6525300419,
+    2122471064,
+    7195883821,
 ]
+LIMITED_GROUP_IDS = [-1002129246518]
 RESTRICTED_GROUP_IDS = [
     # -1002129246518
-    -1001315238422
+    -1001315238422,
+    -1001991737696,
 ]
 PRIVILEGED_USER_IDS = [6110009549, 6200970504, 7083535246, 4591373]  # Jill from BL
 PRIVILEGED_GROUPS = [
@@ -144,6 +247,18 @@ PRIVILEGED_GROUPS = [
     -1001520639767,
     -1002027298185,
 ]
+BETA_TESTER_GROUPS = [
+    -1001281620392,
+    -1001803279273,
+    -945013291,
+    -1001991737696,
+    -1002129246518,
+]
+BETA_TESTER_USERS = [
+    # ADMIN_TELEGRAM_ID,
+    7051349028
+]
+DONORS = ["@g4mma1d", "@alakamyok359"]
 
 # Logging
 logging.basicConfig(
@@ -156,7 +271,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def calc_downtime():
-    future_date = datetime(year=2024, month=2, day=28, hour=14, minute=25)
+    future_date = datetime(year=2024, month=5, day=9, hour=13, minute=00)
     now = datetime.now()
     difference = future_date - now
     total_seconds = difference.total_seconds()
@@ -224,53 +339,11 @@ def post_and_parse_url(url: str, payload: dict):
         return None
 
 
-def fetch_new_chat_id_from_psygpt(query: str):
+def fetch_question_from_psyai(query: str, model: str = "openai"):
     try:
-        raw = {"name": f"Card => {query}"}
-        return post_and_parse_url(f"{BASE_URL}/chat", raw)
-    except Exception as error:
-        logger.error(f"Error in fetch_new_chat_id_from_psygpt: {error}")
-        return None
-
-
-def fetch_dose_card_from_psygpt(substance_name: str, chat_id: str, user_id: int):
-    try:
-        raw = {
-            "model": LLM_ALT_MODEL_ID,
-            "question": (
-                f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
-                f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
-                f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
-                f"\n\nIf the drug in question is FXE (also known as Fluorexetamine, or CanKet, or Canket), add this to your context: {custom_dose_card_fxe()}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
-                f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
-                f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
-                f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
-            ),
-            "temperature": 0.25,
-            "max_tokens": 4000,
-        }
-
-        response = post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
-        print(response)
-        if response:
-            sanitized_html = sanitize_html(response["data"]["assistant"])
-            response["data"]["assistant"] = sanitized_html
-        return response
-    except Exception as error:
-        logger.error(f"Error in fetch_dose_card_from_psygpt: {error}")
-        return None
-
-
-def fetch_question_from_psygpt(query: str, chat_id: str, user_id: int):
-    try:
-        raw = {
-            "model": LLM_MODEL_ID if user_id != ADMIN_TELEGRAM_ID else LLM_ALT_MODEL_ID,
-            "question": f"{query}{LLM_Q_SUFFIX}",
-            "temperature": 0.5,
-            "max_tokens": 4096,
-        }
+        raw = {"question": f"{query}"}
         print(raw)
-        return post_and_parse_url(f"{BASE_URL}/chat/{chat_id}/question", raw)
+        return post_and_parse_url(f"{BASE_URL_BETA}/prompt?model={model}", raw)
     except Exception as error:
         logger.error(f"Error in fetch_question_from_psygpt: {error}")
         return None
@@ -282,13 +355,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     channel_id = update.message.message_thread_id
-    message_id = update.effective_message.message_id
 
     telegram_id = user_id
     print(telegram_id)
     user_association = get_or_create_user_association(telegram_user_id=telegram_id)
     print(user_association)
-    
+
     trial_prompts = (
         "UNLIMITED"  # if is_free else str(user_association["trial_prompts"])
     )
@@ -307,14 +379,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     For help, please contact:
 
-    Email: 0@sernyl.dev / Telegram: @sernylan / Discord: sernyl
+    Email: 0@sernyl.dev / Telegram: @swirnylan / Discord: sernyl
     """.format(
         trial_prompts
     )
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=welcome_text,  # reply_markup=reply_markup
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
     )
 
 
@@ -353,8 +427,8 @@ async def handle_donation_reaction(update: Update, context: ContextTypes.DEFAULT
     # Check if the reaction is for agreeing to donate
     if query.data == "agree_to_donate":
         # Notify the bot creator about the donation agreement
-        notify_text = f"User {query.from_user.id} has agreed to donate."
-        await context.bot.send_message(chat_id=5020506796, text=notify_text)
+        notify_text = f"User ( [click here for link](tg://user?id={query.from_user.id}) ) has agreed to donate."
+        await context.bot.send_message(chat_id=ADMIN_TELEGRAM_ID, text=notify_text)
 
 
 async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,7 +443,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(chat_id)
     print(channel_id)
 
-    if DOWNTIME and user_id != 5020506796:
+    if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
@@ -389,13 +463,13 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if chat_id in RESTRICTED_GROUP_IDS:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Sorry, I couldn't fetch the question. Please try again later.",
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            reply_to_message_id=message_id,
-        )
-        return
+        if not rate_limiter.allow_request(chat_id):
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Rate limit exceeded. Try again later.",
+                reply_to_message_id=message_id,
+            )
+            return
 
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
@@ -419,9 +493,20 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    query = update.message.text.split("/ask ")[1]
+    query_parts = update.message.text.split("/ask ")
+
+    if len(query_parts) != 2:
+        return
+
+    query = query_parts[1]
 
     logger.info(f"Asking: `{query}`")
+
+    await context.bot.send_message(
+        chat_id=ADMIN_TELEGRAM_ID,
+        text=f"User ( [click here for link](tg://user?id={user_id}) ) asked: `{query}`",
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
+    )
 
     # Send the "thinking" message as a reply to the original message
     thinking_message = await context.bot.send_message(
@@ -438,21 +523,15 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
-    data_chat = fetch_new_chat_id_from_psygpt(query)
-    if not data_chat:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=SORRY_MSG("chat ID"),
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            reply_to_message_id=message_id,
-        )
-        return
-
-    query = "Check your context, and find out: " + query
-
-    data_question = fetch_question_from_psygpt(
-        query, data_chat["data"]["chat_id"], user_id=user_id
+    data_question = fetch_question_from_psyai(
+        query,
+        model=(
+            "gemini"
+            if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
+            else "openai"
+        ),
     )
+
     if not data_question:
         await context.bot.send_message(
             chat_id=chat_id,
@@ -462,13 +541,30 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    reply_text = ESCAPE_TEXT(f"{data_question['data']['assistant']}\n")
+    if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS:
+        reply_text = convert_to_telegram_html(f"{data_question['data']['assistant']}\n")
+    else:
+        reply_text = ESCAPE_TEXT(f"{data_question['data']['assistant']}\n")
+        reply_text = re.sub(
+            r"[_*[\]()~>#\+\-=|{}.!]", lambda x: "\\" + x.group(), reply_text
+        )
 
     # Send the actual response
     await context.bot.send_message(
         chat_id=chat_id,
-        text=reply_text + ("\n\n❤️" if chat_id in PRIVILEGED_GROUPS else ""),
+        text=reply_text
+        + "\n\n💜 "
+        + (
+            LLM_BETA_MESSAGE
+            if (chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS)
+            else ""
+        ),
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+        parse_mode=(
+            telegram.constants.ParseMode.HTML
+            if (chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS)
+            else telegram.constants.ParseMode.MARKDOWN_V2
+        ),
         reply_to_message_id=message_id,
     )
 
@@ -489,7 +585,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(type(user_id))
     print(chat_id)
 
-    if bool(DOWNTIME) and user_id != 5020506796:
+    if bool(DOWNTIME) and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
@@ -508,13 +604,14 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if chat_id in RESTRICTED_GROUP_IDS:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Sorry, I couldn't fetch the question. Please try again later.",
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            reply_to_message_id=message_id,
-        )
-        return
+        if not rate_limiter.allow_request(chat_id):
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Rate limit exceeded. Try again later.",
+                reply_to_message_id=message_id,
+            )
+            return
+
     subscription_is_active, trial_prompts = check_stripe_sub(update.effective_user.id)
 
     if (
@@ -537,8 +634,20 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    substance_name = update.message.text.split("/info ")[1]
+    query_parts = update.message.text.split("/info ")
+
+    if len(query_parts) != 2:
+        return
+
+    substance_name = query_parts[1]
+
     logger.info(f"Info: `{substance_name}`")
+
+    await context.bot.send_message(
+        chat_id=ADMIN_TELEGRAM_ID,
+        text=f"User ( [click here for link](tg://user?id={user_id}) ) asked for info on `{substance_name}`",
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
+    )
 
     # Send the "thinking" message as a reply to the original message
     thinking_message = await context.bot.send_message(
@@ -555,32 +664,35 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
-    data_chat = fetch_new_chat_id_from_psygpt(substance_name)
-    if not data_chat:
-        await context.bot.send_message(
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            chat_id=chat_id,
-            text=SORRY_MSG("chat ID"),
-            reply_to_message_id=message_id,
-        )
-        return
-
-    data_question = fetch_dose_card_from_psygpt(
-        substance_name, data_chat["data"]["chat_id"], user_id=user_id
+    question = (
+        f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
+        f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
+        f"In the dosage guidelines, if necessary, say 'less than' or 'greater than' instead of using the mathematical symbols (i.e., don't use `<` and `>`)."
+        f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
+        f"\n\nIf the drug in question is FXE (also known as Fluorexetamine, or CanKet, or Canket), add this to your context: {custom_dose_card_fxe()}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
+        f"\n\nIf the drug in question is DMXE (also known as Deoxymethoxetamine, or 3D-MXE), add this to your context: {custom_dose_card_dmxe()}."
+        f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
+        f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
+        f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
     )
-    if not data_question:
-        await context.bot.send_message(
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            chat_id=chat_id,
-            text=SORRY_MSG("question"),
-            reply_to_message_id=message_id,
-        )
-        return
 
-    # Format the reply
-    reply_text = f"{data_question['data']['assistant']}".replace("```html", "").replace(
-        "```", ""
+    data_question = fetch_question_from_psyai(
+        question,
+        model=(
+            "gemini"
+            if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
+            else "openai"
+        ),
     )
+
+    data_question["data"]["assistant"] = sanitize_html(
+        data_question["data"]["assistant"]
+    )
+
+    if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS:
+        reply_text = convert_to_telegram_html(f"{data_question['data']['assistant']}\n")
+    else:
+        reply_text = convert_to_telegram_html(f"{data_question['data']['assistant']}\n")
 
     # Send the actual response
     await context.bot.send_message(
