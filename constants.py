@@ -49,7 +49,10 @@ RESTRICTED_USER_IDS = [
     # 1083132520,
     # 165302673,
     6674207752,
-    1735952560
+    1735952560,
+    6604560047,
+    1883984096,
+    1982640077,    
 ]
 LIMITED_GROUP_IDS = [-1002129246518]
 RESTRICTED_GROUP_IDS = [
@@ -121,4 +124,52 @@ Here's a concise dosage chart for FXE based on user experiences from Reddit:
 - Potential Hole: 125-150 mg
 
 These ranges are based on anecdotal reports from the r/FXE subreddit, and should be approached with caution.
+"""
+CUSTOM_DOSE_CARD_3_FL_PCP = """
+🔭 **Class**
+- ✴️ **Chemical:** ➡️ Arylcyclohexylamine
+- ✴️ **Psychoactive:** ➡️ Dissociative
+
+⚖️ **Dosages**
+- Threshold: 0-5 mg
+- Light: 10-25 mg
+- Moderate: 25-50 mg
+- Strong: 50-75 mg
+- Heavy: 75+ mg
+
+⏱️ **Duration**
+- **Onset**:
+  - Oral: 30 to 45 minutes
+  - Sublingual: 20 to 30 minutes
+  - Vaping: Immediate to a few minutes
+- **Peak**: 1 to 2 hours after onset
+- **Duration**: 4 to 6 hours, with lingering after-effects
+
+⚠️ **Addiction Potential** ⚠️
+- Moderate to high potential for psychological dependence with frequent use.
+
+🚫 **Interactions** 🚫
+- Avoid mixing with other stimulants or depressants.
+- Be cautious of combining with other psychoactive substances.
+
+**Notes**
+- Always test substances for purity using reagent test kits.
+- Use in a safe, controlled environment, especially for initial experiences.
+- Have a sober sitter if using higher doses or combining substances.
+- Allow several days between uses to avoid tolerance and dependence.
+- Be cautious if you have a history of mental health issues.
+
+🧠 **Subjective Effects**
+- Euphoria
+- Dissociation
+- Stimulation or sedation (depending on the dose)
+- Potential for psychosis at high doses
+
+📈 **Tolerance**
+- Tolerance builds quickly with frequent use.
+- Recommended to space out use to maintain effectiveness and reduce risk.
+
+🕒 **Half-life**
+- Not specifically documented for 3-FL-PCP, but similar compounds suggest a range of several hours.
+
 """

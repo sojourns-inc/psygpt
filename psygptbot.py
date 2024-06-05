@@ -1,6 +1,5 @@
 import logging
 import requests
-import re
 import stripe
 import telegram
 from telegram import Update
@@ -11,7 +10,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
 )
-from datetime import datetime, timedelta
+from datetime import timedelta
 from telegram.constants import ChatAction
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from supabase import create_client
@@ -41,105 +40,13 @@ from constants import (
     BOT_USERNAME,
     ANNOUNCEMENT_TEXT,
     CUSTOM_DOSE_CARD_DMXE,
-    CUSTOM_DOSE_CARD_FXE
+    CUSTOM_DOSE_CARD_FXE,
+    CUSTOM_DOSE_CARD_3_FL_PCP
 )
-
-
-class RateLimiter:
-    def __init__(self, max_requests, window_size):
-        self.requests = {}
-        self.max_requests = max_requests
-        self.window_size = window_size
-
-    def allow_request(self, key):
-        current_time = datetime.now()
-        if key not in self.requests:
-            self.requests[key] = []
-        self.requests[key] = [
-            t for t in self.requests[key] if t > current_time - self.window_size
-        ]
-
-        if len(self.requests[key]) < self.max_requests:
-            self.requests[key].append(current_time)
-            return True
-        return False
-
+from utils import RateLimiter, calc_downtime
+from formatters import create_drug_info_card, sanitize_html, convert_to_telegram_html
 
 rate_limiter = RateLimiter(max_requests=5, window_size=timedelta(hours=1))
-
-
-def create_drug_info_card():
-    info_card = f"""<a href="{{search_url}}"><b>{{drug_name}}</b></a>
-
-🔭 <b>Class</b>
-- ✴️ <b>Chemical:</b> ➡️ {{chemical_class}}
-- ✴️ <b>Psychoactive:</b> ➡️ {{psychoactive_class}}
-
-⚖️ <b>Dosages</b>
-{{dosage_info}}
-
-⏱️ <b>Duration</b>
-{{duration_info}}
-
-⚠️ <b>Addiction Potential</b> ⚠️
-{{addiction_potential}}
-
-🚫 <b>Interactions</b> 🚫
-{{interactions_info}}
-
-<b>Notes</b>
-{{notes}}
-
-🧠 <b>Subjective Effects</b>
-{{subjective_effects}}
-
-📈 <b>Tolerance</b>
-{{tolerance_info}}
-
-🕒 <b>Half-life</b>
-{{half_life_info}}
-"""
-    return info_card
-
-
-def format_message(input_string):
-    formatted_string = input_string.replace("```html", "").replace("```", "")
-
-    return formatted_string
-
-
-def escape_markdown_v2(text):
-    escape_chars = r"_*[]()~`>#\+=-|{}.!"
-    return "".join("\\" + char if char in escape_chars else char for char in text)
-
-
-def sanitize_html(html):
-    allowed_tags = ["a", "b", "i", "code", "pre"]
-    sanitized_html = re.sub(
-        r"<(?!/?({})\b)[^>]*>".format("|".join(allowed_tags)), "", html
-    )
-    return sanitized_html
-
-
-def convert_to_telegram_html(text):
-    text = re.sub(r"## (.*)", r"<b>\1</b>", text)
-    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
-    text = re.sub(r"__(.*?)__", r"<u>\1</u>", text)
-    text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
-    text = re.sub(r"_(.*?)_", r"<i>\1</i>", text)
-    text = re.sub(r"\+\+(.*?)\+\+", r"<u>\1</u>", text)
-    text = re.sub(r"~~(.*?)~~", r"<s>\1</s>", text)
-    text = re.sub(r"\|\|(.*?)\|\|", r'<span class="tg-spoiler">\1</span>', text)
-    text = re.sub(r"\[(.*?)\]\((http[s]?:\/\/.*?)\)", r'<a href="\2">\1</a>', text)
-    text = re.sub(
-        r"\[(.*?)\]\(tg:\/\/user\?id=(\d+)\)", r'<a href="tg://user?id=\2">\1</a>', text
-    )
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    text = re.sub(r"```([^`]*)```", r"<pre>\1</pre>", text, flags=re.DOTALL)
-    text = re.sub(r"^> (.*)", r"<blockquote>\1</blockquote>", text, flags=re.MULTILINE)
-
-    return text
-
 
 stripe.api_key = STRIPE_API_KEY
 endpoint_secret = STRIPE_ENDPOINT_SECRET
@@ -152,18 +59,6 @@ logger = logging.getLogger("PsyAI Log 🤖")
 
 # Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-def calc_downtime():
-    future_date = datetime(year=2024, month=5, day=9, hour=13, minute=00)
-    now = datetime.now()
-    difference = future_date - now
-    total_seconds = difference.total_seconds()
-
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-
-    return f"{int(hours)} hours and {int(minutes)} minutes"
 
 
 def get_or_create_user_association(telegram_user_id):
@@ -314,7 +209,7 @@ async def handle_donation_reaction(update: Update, context: ContextTypes.DEFAULT
                 text=LLM_RESTRICT_MSG,
             )
             return
-        notify_text = f"User ( [click here for link](tg://user?id={query.from_user.id}) ) has agreed to donate."
+        notify_text = f"User ( [click here for link](tg://user?id={query.from_user.id}) ) (id: {query.from_user.id}) has agreed to donate."
         await context.bot.send_message(
             chat_id=ADMIN_TELEGRAM_ID,
             text=notify_text,
@@ -326,14 +221,21 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     calc_downtime()
 
     user_id = update.effective_user.id
+    user_name = update.effective_user.name
     chat_id = update.effective_chat.id
+    chat_title = update.effective_chat.title
+    chat_desc = update.effective_chat.description
     channel_id = (
         update.message.message_thread_id
         if hasattr(update.message, "message_thread_id")
         else None
     )
     message_id = update.effective_message.message_id
+    if not hasattr(update.message, "text"):
+        return
     message_text = update.message.text.strip()
+    
+    logger.info(message_text)
 
     if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
@@ -396,7 +298,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=ADMIN_TELEGRAM_ID,
-            text=f"User ( [click here for link](tg://user?id={user_id}) ) asked: `{query}`",
+            text=f"User ( [click here for link](tg://user?id={user_id}) ) (id: {user_id}, name: {user_name}, chat: {chat_id}, title: {chat_title}, desc: {chat_desc}) asked: `{query}`",
             parse_mode=telegram.constants.ParseMode.MARKDOWN,
         )
 
@@ -438,7 +340,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=chat_id,
             text=reply_text
-            + "\n\n💜 "
+            + "\n\n💜 𝙏𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙 𝙨𝙝𝙤𝙪𝙡𝙙 𝙤𝙣𝙡𝙮 𝙗𝙚 𝙪𝙨𝙚𝙙 𝙛𝙤𝙧 𝙩𝙝𝙚𝙤𝙧𝙚𝙩𝙞𝙘𝙖𝙡 𝙖𝙘𝙖𝙙𝙚𝙢𝙞𝙘 𝙥𝙪𝙧𝙥𝙤𝙨𝙚𝙨. 𝘽𝙮 𝙪𝙨𝙞𝙣𝙜 𝙩𝙝𝙞𝙨 𝙗𝙤𝙩, 𝙮𝙤𝙪 𝙖𝙘𝙠𝙣𝙤𝙬𝙡𝙚𝙙𝙜𝙚 𝙩𝙝𝙖𝙩 𝙩𝙝𝙞𝙨 𝙞𝙨 𝙣𝙤𝙩 𝙢𝙚𝙙𝙞𝙘𝙖𝙡 𝙖𝙙𝙫𝙞𝙘𝙚. 𝙋𝙨𝙮𝘼𝙄, 𝙞𝙩𝙨 𝙙𝙚𝙫𝙚𝙡𝙤𝙥𝙚𝙧𝙨, 𝙖𝙣𝙙 𝙩𝙝𝙚 𝙘𝙤𝙢𝙢𝙪𝙣𝙞𝙩𝙞𝙚𝙨 𝙞𝙩 𝙤𝙥𝙚𝙧𝙖𝙩𝙚𝙨 𝙞𝙣 𝙖𝙧𝙚 𝙣𝙤𝙩 𝙡𝙞𝙖𝙗𝙡𝙚 𝙛𝙤𝙧 𝙖𝙣𝙮 𝙘𝙤𝙣𝙨𝙚𝙦𝙪𝙚𝙣𝙘𝙚𝙨 𝙧𝙚𝙨𝙪𝙡𝙩𝙖𝙣𝙩 𝙛𝙧𝙤𝙢 𝙢𝙞𝙨𝙪𝙨𝙚 𝙤𝙛 𝙩𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙."
             + (
                 LLM_BETA_MESSAGE
                 if (chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS)
@@ -458,7 +360,10 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     calc_downtime()
 
     user_id = update.effective_user.id
+    user_name = update.effective_user.name
     chat_id = update.effective_chat.id
+    chat_title = update.effective_chat.title
+    chat_desc = update.effective_chat.description
     channel_id = update.message.message_thread_id
     message_id = update.effective_message.message_id
 
@@ -524,7 +429,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=ADMIN_TELEGRAM_ID,
-        text=f"User ( [click here for link](tg://user?id={user_id}) ) asked for info on `{substance_name}`",
+        text=f"User ( [click here for link](tg://user?id={user_id}) ) (id: {user_id}, name: {user_name}, chat: {chat_id}, title: {chat_title}, desc: {chat_desc}) asked for info on `{substance_name}`",
         parse_mode=telegram.constants.ParseMode.MARKDOWN,
     )
 
@@ -546,8 +451,9 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
         f"In the dosage guidelines, if necessary, say 'less than' or 'greater than' instead of using the mathematical symbols (i.e., don't use `<` and `>`)."
         f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
-        f"\n\nIf the drug in question is FXE (also known as Fluorexetamine, or CanKet, or Canket), add this to your context: {CUSTOM_DOSE_CARD_FXE}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
-        f"\n\nIf the drug in question is DMXE (also known as Deoxymethoxetamine, or 3D-MXE), add this to your context: {CUSTOM_DOSE_CARD_DMXE}."
+        f"\n\nIf the drug being asked about is \"FXE\" (also known as \"Fluorexetamine\", or \"CanKet\", or \"Canket\"), use this information: {CUSTOM_DOSE_CARD_FXE}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
+        f"\n\nIf the drug being asked about is \"DMXE\" (also known as \"Deoxymethoxetamine\", or \"3D-MXE\"), use this information: {CUSTOM_DOSE_CARD_DMXE}."
+        f"\n\nIf the drug being asked about is \"3-Fl-PCP\" (also known as \"3-F-PCP\", \"3-Fluoro-PCP\", \"3F-PCP\"), use this information: {CUSTOM_DOSE_CARD_3_FL_PCP}."
         f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
         f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
         f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
@@ -560,7 +466,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
             else "openai"
         ),
-        temperature=0.0,
+        temperature=0.3,
         tokens=3000,
     )
 
@@ -573,7 +479,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-        text=reply_text,
+        text=reply_text+ "\n\n💜 𝙏𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙 𝙨𝙝𝙤𝙪𝙡𝙙 𝙤𝙣𝙡𝙮 𝙗𝙚 𝙪𝙨𝙚𝙙 𝙛𝙤𝙧 𝙩𝙝𝙚𝙤𝙧𝙚𝙩𝙞𝙘𝙖𝙡 𝙖𝙘𝙖𝙙𝙚𝙢𝙞𝙘 𝙥𝙪𝙧𝙥𝙤𝙨𝙚𝙨. 𝘽𝙮 𝙪𝙨𝙞𝙣𝙜 𝙩𝙝𝙞𝙨 𝙗𝙤𝙩, 𝙮𝙤𝙪 𝙖𝙘𝙠𝙣𝙤𝙬𝙡𝙚𝙙𝙜𝙚 𝙩𝙝𝙖𝙩 𝙩𝙝𝙞𝙨 𝙞𝙨 𝙣𝙤𝙩 𝙢𝙚𝙙𝙞𝙘𝙖𝙡 𝙖𝙙𝙫𝙞𝙘𝙚. 𝙋𝙨𝙮𝘼𝙄, 𝙞𝙩𝙨 𝙙𝙚𝙫𝙚𝙡𝙤𝙥𝙚𝙧𝙨, 𝙖𝙣𝙙 𝙩𝙝𝙚 𝙘𝙤𝙢𝙢𝙪𝙣𝙞𝙩𝙞𝙚𝙨 𝙞𝙩 𝙤𝙥𝙚𝙧𝙖𝙩𝙚𝙨 𝙞𝙣 𝙖𝙧𝙚 𝙣𝙤𝙩 𝙡𝙞𝙖𝙗𝙡𝙚 𝙛𝙤𝙧 𝙖𝙣𝙮 𝙘𝙤𝙣𝙨𝙚𝙦𝙪𝙚𝙣𝙘𝙚𝙨 𝙧𝙚𝙨𝙪𝙡𝙩𝙖𝙣𝙩 𝙛𝙧𝙤𝙢 𝙢𝙞𝙨𝙪𝙨𝙚 𝙤𝙛 𝙩𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙.",
         parse_mode=telegram.constants.ParseMode.HTML,
         reply_to_message_id=message_id,
     )
@@ -632,6 +538,48 @@ async def send_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Announcement sent to group {chat_id}")
         except Exception as e:
             logger.error(f"Failed to send announcement to group {chat_id}: {e}")
+            
+
+async def send_announcement_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("send_announcement_direct function called")
+
+    if update.effective_user.id != ADMIN_TELEGRAM_ID:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You do not have permission to use this command.",
+        )
+        return
+
+    try:
+        # Extract group ID and announcement text from the command
+        args = context.args
+        if len(args) < 2:
+            raise ValueError("Insufficient arguments. Provide group ID and announcement text.")
+        
+        group_id = int(args[0])
+        if group_id >= 0:
+            raise ValueError("Group ID must be a negative number.")
+
+        announcement_text = ' '.join(args[1:])
+
+        # Send the announcement to the specified group
+        await context.bot.send_message(
+            chat_id=group_id,
+            text=announcement_text,
+            parse_mode=telegram.constants.ParseMode.MARKDOWN,
+        )
+        logger.info(f"Announcement sent to group {group_id}")
+    except (IndexError, ValueError) as e:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Error: {e}. Please provide a valid negative group ID followed by the announcement text.",
+        )
+    except Exception as e:
+        logger.error(f"Failed to send announcement to group {group_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Failed to send announcement to group {group_id}: {e}",
+        )
 
 
 async def start_subscription(update, context):
@@ -682,12 +630,15 @@ if __name__ == "__main__":
     donation_reaction_handler = CallbackQueryHandler(handle_donation_reaction)
     dm_handler = CommandHandler("dm", send_direct_message)
     announcement_handler = CommandHandler("announce", send_announcement)
+    announcement_direct_handler = CommandHandler("announce_direct", send_announcement_direct)
 
     application.add_handler(start_handler)
     application.add_handler(sub_handler)
     application.add_handler(tip_handler)
+    application.add_handler(announcement_direct_handler)
     application.add_handler(dm_handler)
     application.add_handler(announcement_handler)
+    
     application.add_handler(info_handler)
     application.add_handler(ask_handler)
     application.add_handler(donation_reaction_handler)
