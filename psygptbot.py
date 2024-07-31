@@ -10,43 +10,17 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
 )
+import textwrap
+from telegram.helpers import escape_markdown
 from datetime import timedelta
 from telegram.constants import ChatAction
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from supabase import create_client
-from constants import (
-    BASE_URL_BETA,
-    DOWNTIME,
-    FREEMODE,
-    LLM_RESTRICT_MSG,
-    LLM_BETA_MESSAGE,
-    ADMIN_TELEGRAM_ID,
-    TELETOKEN,
-    STRIPE_PLAN_ID,
-    STRIPE_API_KEY,
-    STRIPE_ENDPOINT_SECRET,
-    SUPABASE_URL,
-    SUPABASE_KEY,
-    PATREON_LINKER_SUCCESS_URL,
-    PATREON_LINKER_CANCEL_URL,
-    SORRY_MSG,
-    RESTRICTED_USER_IDS,
-    LIMITED_GROUP_IDS,
-    RESTRICTED_GROUP_IDS,
-    PRIVILEGED_USER_IDS,
-    PRIVILEGED_GROUPS,
-    BETA_TESTER_GROUPS,
-    BETA_TESTER_USERS,
-    BOT_USERNAME,
-    ANNOUNCEMENT_TEXT,
-    CUSTOM_DOSE_CARD_DMXE,
-    CUSTOM_DOSE_CARD_FXE,
-    CUSTOM_DOSE_CARD_3_FL_PCP
-)
+from constants import *
 from utils import RateLimiter, calc_downtime
 from formatters import create_drug_info_card, sanitize_html, convert_to_telegram_html
 
-rate_limiter = RateLimiter(max_requests=5, window_size=timedelta(hours=1))
+rate_limiter = RateLimiter(max_requests=20, window_size=timedelta(hours=1))
 
 stripe.api_key = STRIPE_API_KEY
 endpoint_secret = STRIPE_ENDPOINT_SECRET
@@ -77,7 +51,6 @@ def get_or_create_user_association(telegram_user_id):
 
         if response.data:
             user_data = response.data[0]
-            logger.info(f"User association found or created: {user_data}")
             return user_data
         else:
             logger.warning(
@@ -115,7 +88,7 @@ def post_and_parse_url(url: str, payload: dict):
 
 
 def fetch_question_from_psyai(
-    query: str, model: str = "openai", temperature: float = 0.2, tokens: int = 3000
+    query: str, model: str = "openai", temperature: float = 0.2, tokens: int = 2000
 ):
     try:
         raw = (
@@ -123,7 +96,6 @@ def fetch_question_from_psyai(
             if model == "gemini"
             else {"question": query, "temperature": temperature, "tokens": tokens}
         )
-        print(raw)
         return post_and_parse_url(f"{BASE_URL_BETA}/prompt?model={model}", raw)
     except Exception as error:
         logger.error(f"Error in fetch_question_from_psygpt: {error}")
@@ -145,25 +117,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     trial_prompts = (
         "UNLIMITED"  # if is_free else str(user_association["trial_prompts"])
     )
-    welcome_text = """
-    Welcome to PsyAI Bot! PsyAI is your AI-powered guide that answers questions about drugs in an unbiased, judgement-free way. The bot sources dosage, duration, tolerance, and harm reduction information from [PsychonautWiki](http://www.psychonautwiki.org), [Effect Index](https://effectindex.com) and a plethora of curated information sources.
-
-    - You have {} FREE prompts remaining.
-
-    - If you aren't subscribed, send the /sub command to do so.
-
-    - Type /info [Drug Name] to request info about a particular substance.
-
-    - Type /ask [Your question here] to ask me general questions about substances. Make sure to include your question after '/ask'!
-
-    - The bot will ONLY respond to messages that start with either /ask, or /info.
-
-    For help, please contact:
-
-    Email: 0@sernyl.dev / Telegram: @swirnylan / Discord: sernyl
-    """.format(
-        trial_prompts
-    )
+    welcome_text = BOT_GREETING_MSG.format(trial_prompts)
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -234,8 +188,6 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not hasattr(update.message, "text"):
         return
     message_text = update.message.text.strip()
-    
-    logger.info(message_text)
 
     if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
@@ -294,11 +246,23 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not query:
             return
 
+        # Check if the user is replying to a message
+        if update.message.reply_to_message:
+            # Check if the replied message is from the bot itself
+            if update.message.reply_to_message.from_user.id == context.bot.id:
+                previous_response = update.message.reply_to_message.text
+                # Append the previous response to the current query
+                query = (
+                    f"Previous response: {previous_response}\n\nCurrent query: {query}"
+                )
+
         logger.info(f"Asking: `{query}`")
+
+        escaped_user_name = escape_markdown(user_name, version=2)
 
         await context.bot.send_message(
             chat_id=ADMIN_TELEGRAM_ID,
-            text=f"User ( [click here for link](tg://user?id={user_id}) ) (id: {user_id}, name: {user_name}, chat: {chat_id}, title: {chat_title}, desc: {chat_desc}) asked: `{query}`",
+            text=f"User ( [click here for link](tg://user?id={user_id}) ) (id: {user_id}, name: {escaped_user_name}, chat: {chat_id}, title: {chat_title}, desc: {chat_desc}) asked: `{query}`",
             parse_mode=telegram.constants.ParseMode.MARKDOWN,
         )
 
@@ -322,8 +286,8 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
                 else "openai"
             ),
-            temperature=0.3,
-            tokens=1000,
+            temperature=0.2,
+            tokens=3000,
         )
 
         if not data_question:
@@ -335,25 +299,39 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        reply_text = convert_to_telegram_html(f"{data_question['data']['assistant']}\n")
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=reply_text
-            + "\n\n💜 𝙏𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙 𝙨𝙝𝙤𝙪𝙡𝙙 𝙤𝙣𝙡𝙮 𝙗𝙚 𝙪𝙨𝙚𝙙 𝙛𝙤𝙧 𝙩𝙝𝙚𝙤𝙧𝙚𝙩𝙞𝙘𝙖𝙡 𝙖𝙘𝙖𝙙𝙚𝙢𝙞𝙘 𝙥𝙪𝙧𝙥𝙤𝙨𝙚𝙨. 𝘽𝙮 𝙪𝙨𝙞𝙣𝙜 𝙩𝙝𝙞𝙨 𝙗𝙤𝙩, 𝙮𝙤𝙪 𝙖𝙘𝙠𝙣𝙤𝙬𝙡𝙚𝙙𝙜𝙚 𝙩𝙝𝙖𝙩 𝙩𝙝𝙞𝙨 𝙞𝙨 𝙣𝙤𝙩 𝙢𝙚𝙙𝙞𝙘𝙖𝙡 𝙖𝙙𝙫𝙞𝙘𝙚. 𝙋𝙨𝙮𝘼𝙄, 𝙞𝙩𝙨 𝙙𝙚𝙫𝙚𝙡𝙤𝙥𝙚𝙧𝙨, 𝙖𝙣𝙙 𝙩𝙝𝙚 𝙘𝙤𝙢𝙢𝙪𝙣𝙞𝙩𝙞𝙚𝙨 𝙞𝙩 𝙤𝙥𝙚𝙧𝙖𝙩𝙚𝙨 𝙞𝙣 𝙖𝙧𝙚 𝙣𝙤𝙩 𝙡𝙞𝙖𝙗𝙡𝙚 𝙛𝙤𝙧 𝙖𝙣𝙮 𝙘𝙤𝙣𝙨𝙚𝙦𝙪𝙚𝙣𝙘𝙚𝙨 𝙧𝙚𝙨𝙪𝙡𝙩𝙖𝙣𝙩 𝙛𝙧𝙤𝙢 𝙢𝙞𝙨𝙪𝙨𝙚 𝙤𝙛 𝙩𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙."
-            + (
-                LLM_BETA_MESSAGE
-                if (chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS)
-                else ""
-            ),
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            parse_mode=(telegram.constants.ParseMode.HTML),
-            reply_to_message_id=message_id,
+        reply_text = convert_to_telegram_html(
+            f"{data_question['data']['assistant']}\n\n[Disclaimer](https://publish.obsidian.md/psyai/Projects/PsyAI/Legal/Disclaimer) 📜 | [Contact](https://t.me/sernylan) 📱 | [Github](https://github.com/sojourns-inc/psyai-async)"
         )
 
-        await context.bot.delete_message(
-            chat_id=chat_id, message_id=thinking_message.message_id
+        MAX_MESSAGE_LENGTH = 3000  # Telegram's character limit
+        chunks = textwrap.wrap(
+            reply_text, width=MAX_MESSAGE_LENGTH, replace_whitespace=False
         )
+
+        for chunk in chunks:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                disable_web_page_preview=True,
+                text=chunk
+                + (
+                    LLM_BETA_MESSAGE
+                    if (chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS)
+                    else ""
+                ),
+                message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+                parse_mode=(telegram.constants.ParseMode.HTML),
+                reply_to_message_id=message_id,
+            )
+
+        # After all chunks are sent, attempt to delete the "thinking" message
+        try:
+            await context.bot.delete_message(
+                chat_id=chat_id, message_id=thinking_message.message_id
+            )
+        except telegram.error.BadRequest:
+            logger.warning(
+                "Failed to delete thinking message: Message to delete not found"
+            )
 
 
 async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,18 +424,24 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
     )
 
-    question = (
-        f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
-        f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
-        f"In the dosage guidelines, if necessary, say 'less than' or 'greater than' instead of using the mathematical symbols (i.e., don't use `<` and `>`)."
-        f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
-        f"\n\nIf the drug being asked about is \"FXE\" (also known as \"Fluorexetamine\", or \"CanKet\", or \"Canket\"), use this information: {CUSTOM_DOSE_CARD_FXE}. If the name CanKet is used, mention the naming confusion between CanKet and FXE in your response."
-        f"\n\nIf the drug being asked about is \"DMXE\" (also known as \"Deoxymethoxetamine\", or \"3D-MXE\"), use this information: {CUSTOM_DOSE_CARD_DMXE}."
-        f"\n\nIf the drug being asked about is \"3-Fl-PCP\" (also known as \"3-F-PCP\", \"3-Fluoro-PCP\", \"3F-PCP\"), use this information: {CUSTOM_DOSE_CARD_3_FL_PCP}."
-        f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
-        f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
-        f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
-    )
+    custom_drug = CUSTOM_KVL_DRUGS.get(substance_name.lower())
+    if custom_drug is not None:
+        question = (
+            f"Create a detailed drug information card for '{substance_name}' in HTML format, without any code block delimeters. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'. The details are:\n\n{custom_drug}",
+            f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information.",
+            f"\n\nExample drug information card template:\n\n{create_drug_info_card()}",
+        )
+    else:
+        question = (
+            f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
+            f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
+            f"In the dosage guidelines, if necessary, say 'less than' or 'greater than' instead of using the mathematical symbols (i.e., don't use `<` and `>`)."
+            f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
+            f"\n\nIf the drug name mentioned, isn't a name mentioned in the context, do not create a drug information card. Instead, provide name suggestions if the name mentioned looks like a misspelling of a real drug name. If the name mentioned doesn't remotely resemble any real drug name, do not create a drug information card."
+            f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
+            f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
+            f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
+        )
 
     data_question = fetch_question_from_psyai(
         question,
@@ -466,7 +450,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
             else "openai"
         ),
-        temperature=0.3,
+        temperature=0.2,
         tokens=3000,
     )
 
@@ -474,12 +458,14 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_question["data"]["assistant"]
     )
 
-    reply_text = convert_to_telegram_html(f"{data_question['data']['assistant']}\n")
+    reply_text = convert_to_telegram_html(
+        f"{data_question['data']['assistant']}\n\n[Disclaimer](https://publish.obsidian.md/psyai/Projects/PsyAI/Legal/Disclaimer) 📜 | [Contact](https://t.me/psychejello) 📱 | [Github](https://github.com/sojourns-inc/psyai-async)"
+    )
 
     await context.bot.send_message(
         chat_id=chat_id,
         message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-        text=reply_text+ "\n\n💜 𝙏𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙 𝙨𝙝𝙤𝙪𝙡𝙙 𝙤𝙣𝙡𝙮 𝙗𝙚 𝙪𝙨𝙚𝙙 𝙛𝙤𝙧 𝙩𝙝𝙚𝙤𝙧𝙚𝙩𝙞𝙘𝙖𝙡 𝙖𝙘𝙖𝙙𝙚𝙢𝙞𝙘 𝙥𝙪𝙧𝙥𝙤𝙨𝙚𝙨. 𝘽𝙮 𝙪𝙨𝙞𝙣𝙜 𝙩𝙝𝙞𝙨 𝙗𝙤𝙩, 𝙮𝙤𝙪 𝙖𝙘𝙠𝙣𝙤𝙬𝙡𝙚𝙙𝙜𝙚 𝙩𝙝𝙖𝙩 𝙩𝙝𝙞𝙨 𝙞𝙨 𝙣𝙤𝙩 𝙢𝙚𝙙𝙞𝙘𝙖𝙡 𝙖𝙙𝙫𝙞𝙘𝙚. 𝙋𝙨𝙮𝘼𝙄, 𝙞𝙩𝙨 𝙙𝙚𝙫𝙚𝙡𝙤𝙥𝙚𝙧𝙨, 𝙖𝙣𝙙 𝙩𝙝𝙚 𝙘𝙤𝙢𝙢𝙪𝙣𝙞𝙩𝙞𝙚𝙨 𝙞𝙩 𝙤𝙥𝙚𝙧𝙖𝙩𝙚𝙨 𝙞𝙣 𝙖𝙧𝙚 𝙣𝙤𝙩 𝙡𝙞𝙖𝙗𝙡𝙚 𝙛𝙤𝙧 𝙖𝙣𝙮 𝙘𝙤𝙣𝙨𝙚𝙦𝙪𝙚𝙣𝙘𝙚𝙨 𝙧𝙚𝙨𝙪𝙡𝙩𝙖𝙣𝙩 𝙛𝙧𝙤𝙢 𝙢𝙞𝙨𝙪𝙨𝙚 𝙤𝙛 𝙩𝙝𝙚 𝙞𝙣𝙛𝙤𝙧𝙢𝙖𝙩𝙞𝙤𝙣 𝙥𝙧𝙤𝙫𝙞𝙙𝙚𝙙.",
+        text=reply_text,
         parse_mode=telegram.constants.ParseMode.HTML,
         reply_to_message_id=message_id,
     )
@@ -525,7 +511,6 @@ async def send_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="You do not have permission to use this command.",
         )
         return
-
     all_groups = PRIVILEGED_GROUPS + LIMITED_GROUP_IDS + RESTRICTED_GROUP_IDS
 
     for chat_id in all_groups:
@@ -538,7 +523,7 @@ async def send_announcement(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Announcement sent to group {chat_id}")
         except Exception as e:
             logger.error(f"Failed to send announcement to group {chat_id}: {e}")
-            
+
 
 async def send_announcement_direct(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("send_announcement_direct function called")
@@ -554,13 +539,15 @@ async def send_announcement_direct(update: Update, context: ContextTypes.DEFAULT
         # Extract group ID and announcement text from the command
         args = context.args
         if len(args) < 2:
-            raise ValueError("Insufficient arguments. Provide group ID and announcement text.")
-        
+            raise ValueError(
+                "Insufficient arguments. Provide group ID and announcement text."
+            )
+
         group_id = int(args[0])
         if group_id >= 0:
             raise ValueError("Group ID must be a negative number.")
 
-        announcement_text = ' '.join(args[1:])
+        announcement_text = " ".join(args[1:])
 
         # Send the announcement to the specified group
         await context.bot.send_message(
@@ -608,6 +595,82 @@ async def start_subscription(update, context):
     )
 
 
+async def delete_topic_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_TELEGRAM_ID:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You do not have permission to use this command.",
+        )
+        return
+
+    group_id = -1001281620392
+    topic_id = 26361
+
+    try:
+        # Get all messages in the topic
+        messages = []
+        offset = 0
+        while True:
+            response = await context.bot.get_forum_topic_messages(
+                chat_id=group_id,
+                message_thread_id=topic_id,
+                offset=offset,
+                limit=100,
+            )
+            messages.extend(response)
+            if len(response) < 100:
+                break
+            offset += 100
+
+        # Delete messages one by one
+        for message in messages:
+            await context.bot.delete_message(
+                chat_id=group_id,
+                message_id=message.message_id,
+            )
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Deleted {len(messages)} messages in the topic.",
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete messages in the topic: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="An error occurred while deleting messages in the topic.",
+        )
+
+
+async def leave_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_TELEGRAM_ID:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="You do not have permission to use this command.",
+        )
+        return
+
+    if len(context.args) != 1:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Usage: /leave <group/chat/channel id>",
+        )
+        return
+
+    try:
+        group_id = int(context.args[0])
+        await context.bot.leave_chat(chat_id=group_id)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Left the group/chat/channel with ID {group_id}.",
+        )
+    except Exception as e:
+        logger.error(f"Failed to leave group/chat/channel: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="An error occurred while trying to leave the group/chat/channel.",
+        )
+
+
 if __name__ == "__main__":
     application = ApplicationBuilder().token(TELETOKEN).build()
 
@@ -630,15 +693,24 @@ if __name__ == "__main__":
     donation_reaction_handler = CallbackQueryHandler(handle_donation_reaction)
     dm_handler = CommandHandler("dm", send_direct_message)
     announcement_handler = CommandHandler("announce", send_announcement)
-    announcement_direct_handler = CommandHandler("announce_direct", send_announcement_direct)
+    announcement_direct_handler = CommandHandler(
+        "announce_direct", send_announcement_direct
+    )
+    delete_topic_messages_handler = CommandHandler(
+        "delete_topic_messages", delete_topic_messages
+    )
+    leave_group_handler = CommandHandler("leave", leave_group)
 
     application.add_handler(start_handler)
     application.add_handler(sub_handler)
     application.add_handler(tip_handler)
+
+    application.add_handler(delete_topic_messages_handler)
     application.add_handler(announcement_direct_handler)
     application.add_handler(dm_handler)
+    application.add_handler(leave_group_handler)
     application.add_handler(announcement_handler)
-    
+
     application.add_handler(info_handler)
     application.add_handler(ask_handler)
     application.add_handler(donation_reaction_handler)

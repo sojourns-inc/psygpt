@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 
@@ -31,3 +32,17 @@ def calc_downtime():
     minutes = (total_seconds % 3600) // 60
 
     return f"{int(hours)} hours and {int(minutes)} minutes"
+
+
+class MultiKeyDict:
+    def __init__(self):
+        self.data = {}
+        self.key_map = defaultdict(list)
+
+    def add(self, keys, value):
+        for key in keys:
+            self.data[key] = value
+            self.key_map[value].append(key)
+
+    def get(self, key):
+        return self.data.get(key, None)
