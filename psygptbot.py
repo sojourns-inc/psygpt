@@ -427,9 +427,10 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     custom_drug = CUSTOM_KVL_DRUGS.get(substance_name.lower())
     if custom_drug is not None:
         question = (
-            f"Create a detailed drug information card for '{substance_name}' in HTML format, without any code block delimeters. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'. The details are:\n\n{custom_drug}",
-            f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information.",
-            f"\n\nExample drug information card template:\n\n{create_drug_info_card()}",
+            "Refuse to create a drug information card for this substance, on the grounds that there insufficient data to provide accurate information."
+            # f"Create a detailed drug information card for '{substance_name}' in HTML format, without any code block delimeters. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'. The details are:\n\n{custom_drug}",
+            # f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information.",
+            # f"\n\nExample drug information card template:\n\n{create_drug_info_card()}",
         )
     else:
         question = (
