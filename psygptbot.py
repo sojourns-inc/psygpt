@@ -489,7 +489,7 @@ async def send_direct_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = int(args[0])
         message = " ".join(args[1:])
 
-        await context.bot.send_message(chat_id=user_id, text=message)
+        await context.bot.send_message(chat_id=user_id, text=message, parse_mode=telegram.constants.ParseMode.MARKDOWN_V2)
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"Message sent to user with ID: {user_id}",
