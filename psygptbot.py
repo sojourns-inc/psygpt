@@ -18,7 +18,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
 from supabase import create_client
 from constants import *
 from utils import RateLimiter, calc_downtime
-from formatters import create_drug_info_card, sanitize_html, convert_to_telegram_html
+from formatters import sanitize_html, convert_to_telegram_html
 
 rate_limiter = RateLimiter(max_requests=20, window_size=timedelta(hours=1))
 
