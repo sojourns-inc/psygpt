@@ -88,7 +88,7 @@ def post_and_parse_url(url: str, payload: dict):
 
 
 def fetch_question_from_psyai(
-    query: str, model: str = "openai", temperature: float = 0.2, tokens: int = 2000
+    query: str, model: str = "openai", temperature: float = 0.2, tokens: int = 2000, drug: bool = False
 ):
     try:
         raw = (
@@ -96,6 +96,9 @@ def fetch_question_from_psyai(
             if model == "gemini"
             else {"question": query, "temperature": temperature, "tokens": tokens}
         )
+        if drug:
+            raw["format"] = "html"
+            raw["drug"] = True
         return post_and_parse_url(f"{BASE_URL_BETA}/prompt?model={model}", raw)
     except Exception as error:
         logger.error(f"Error in fetch_question_from_psygpt: {error}")
@@ -189,14 +192,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     message_text = update.message.text.strip()
 
-    if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
-            message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
-            reply_to_message_id=message_id,
-        )
-        return
+
 
     if user_id in RESTRICTED_USER_IDS:
         await context.bot.send_message(
@@ -244,6 +240,15 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = message_text.replace(f"@{BOT_USERNAME}", "").strip()
 
         if not query:
+            return
+        
+        if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Dude, I am **way** too high to answers questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
+                message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
+                reply_to_message_id=message_id,
+            )
             return
 
         # Check if the user is replying to a message
@@ -351,7 +356,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bool(DOWNTIME) and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"I am currently down for maintenance. Please try again later. Estimated time: {calc_downtime()}",
+            text=f"Dude, I am **way** too high to answers questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
             message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
             reply_to_message_id=message_id,
         )
@@ -428,21 +433,9 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if custom_drug is not None:
         question = (
             "Refuse to create a drug information card for this substance, on the grounds that there insufficient data to provide accurate information."
-            # f"Create a detailed drug information card for '{substance_name}' in HTML format, without any code block delimeters. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'. The details are:\n\n{custom_drug}",
-            # f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information.",
-            # f"\n\nExample drug information card template:\n\n{create_drug_info_card()}",
         )
     else:
-        question = (
-            f"Create a detailed drug information card for '{substance_name}' in HTML format. Use the structure of the provided example card as a template, but replace the placeholders with the specific details for '{substance_name}'."
-            f"\n\nFor each section, provide the relevant information if available. If certain details like dosages for specific routes (e.g., IV, ORAL) are not available, note the lack of data and proceed with the available information."
-            f"In the dosage guidelines, if necessary, say 'less than' or 'greater than' instead of using the mathematical symbols (i.e., don't use `<` and `>`)."
-            f"\n\nAdapt the sections accordingly to include or exclude information based on what is relevant for '{substance_name}'. Ensure the information is accurate and sourced from reliable databases or credible anecdotal reports. If the source can be inferred with certainty from the information provided, mention the source in your response."
-            f"\n\nIf the drug name mentioned, isn't a name mentioned in the context, do not create a drug information card. Instead, provide name suggestions if the name mentioned looks like a misspelling of a real drug name. If the name mentioned doesn't remotely resemble any real drug name, do not create a drug information card."
-            f"\n\nExample drug information card template:\n\n{create_drug_info_card()}"
-            f"\n\nNote: The dosing guidelines should reflect the common practices for '{substance_name}', adjusting for route of administration and available data. Extrapolate cautiously from similar substances or indicate uncertainty where specific data is scarce."
-            f"\n\nDo not mention the creation of drug information card explicitly in your response, and don't make any references to the formatting of the card, i.e. don't mention HTML."
-        )
+        question = substance_name
 
     data_question = fetch_question_from_psyai(
         question,
@@ -451,8 +444,9 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if chat_id in BETA_TESTER_GROUPS or user_id in BETA_TESTER_USERS
             else "openai"
         ),
-        temperature=0.2,
+        temperature=0.3,
         tokens=3000,
+        drug=True
     )
 
     data_question["data"]["assistant"] = sanitize_html(

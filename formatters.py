@@ -1,40 +1,6 @@
 import re
 
 
-def create_drug_info_card():
-    info_card = f"""<a href="{{search_url}}"><b>{{drug_name}}</b></a>
-
-🔭 <b>Class</b>
-- ✴️ <b>Chemical:</b> ➡️ {{chemical_class}}
-- ✴️ <b>Psychoactive:</b> ➡️ {{psychoactive_class}}
-
-⚖️ <b>Dosages</b>
-{{dosage_info}}
-
-⏱️ <b>Duration</b>
-{{duration_info}}
-
-⚠️ <b>Addiction Potential</b> ⚠️
-{{addiction_potential}}
-
-🚫 <b>Interactions</b> 🚫
-{{interactions_info}}
-
-<b>Notes</b>
-{{notes}}
-
-🧠 <b>Subjective Effects</b>
-{{subjective_effects}}
-
-📈 <b>Tolerance</b>
-{{tolerance_info}}
-
-🕒 <b>Half-life</b>
-{{half_life_info}}
-"""
-    return info_card
-
-
 def format_message(input_string):
     formatted_string = input_string.replace("```html", "").replace("```", "")
 

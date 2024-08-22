@@ -23,7 +23,7 @@ class RateLimiter:
 
 
 def calc_downtime():
-    future_date = datetime(year=2024, month=5, day=9, hour=13, minute=00)
+    future_date = datetime(year=2024, month=8, day=24, hour=00, minute=00)
     now = datetime.now()
     difference = future_date - now
     total_seconds = difference.total_seconds()
