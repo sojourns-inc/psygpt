@@ -245,7 +245,7 @@ async def respond_to_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if DOWNTIME and user_id != ADMIN_TELEGRAM_ID:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"Dude, I am **way** too high to answers questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
+                text=f"Dude, I am **way** too high to answer questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
                 message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
                 reply_to_message_id=message_id,
             )
@@ -356,7 +356,7 @@ async def respond_to_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bool(DOWNTIME) and user_id != ADMIN_TELEGRAM_ID:
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"Dude, I am **way** too high to answers questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
+            text=f"Dude, I am **way** too high to answer questions right now ᎧᏇᎧ.\n\nJust kidding -- I'm actually undergoing routine maintenance.  Estimated time: {calc_downtime()}",
             message_thread_id=channel_id if chat_id in PRIVILEGED_GROUPS else None,
             reply_to_message_id=message_id,
         )
